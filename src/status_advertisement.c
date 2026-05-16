@@ -997,6 +997,7 @@ static void adv_work_handler(struct k_work *work) {
             // ZMK not advertising → start our own ADV
             zmk_adv_was_active = false;
 
+#if IS_ENABLED(CONFIG_ZMK_SPLIT_ROLE_CENTRAL)
             if (!prospector_split_fully_connected()) {
                 // BURST phase of the burst/silent cycle (silent phase is
                 // handled at the top of adv_work_handler and short-circuits
@@ -1013,7 +1014,9 @@ static void adv_work_handler(struct k_work *work) {
                 } else if (err != -EALREADY) {
                     LOG_WRN("Failed to start burst ADV: %d", err);
                 }
-            } else if (active_connected) {
+            } else
+#endif
+            if (active_connected) {
                 // Active profile connected → non-connectable (status display only)
                 err = bt_le_adv_start(&prospector_adv_params,
                                       prospector_ad, ARRAY_SIZE(prospector_ad),
