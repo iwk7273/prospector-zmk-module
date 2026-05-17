@@ -10,6 +10,13 @@ if(CONFIG_ZMK_STATUS_ADVERTISEMENT)
         target_sources(app PRIVATE src/status_advertisement.c)
 endif()
 
+# v2 Extended Advertising (Phase 2) — layer name list + custom config.
+# Built as a second, independent BLE 5.0 ext-adv set parallel to v1.
+if(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+        target_sources(app PRIVATE src/status_advertisement_v2.c)
+        target_sources(app PRIVATE src/prospector_v2_hooks_default.c)
+endif()
+
 # Add scanner mode support
 if(CONFIG_PROSPECTOR_MODE_SCANNER)
         target_sources(app PRIVATE src/status_scanner.c)
