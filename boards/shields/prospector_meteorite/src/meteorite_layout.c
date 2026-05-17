@@ -151,12 +151,12 @@ static void build_header(lv_obj_t *p) {
     lv_obj_set_style_bg_color(strip, COL_HDR_BG, 0);
     lv_obj_set_style_bg_opa(strip, LV_OPA_COVER, 0);
 
-    lbl_kb_name = make_label(p, 6, HDR_Y + 10,
+    lbl_kb_name = make_label(p, 12, HDR_Y + 10,
                              &lv_font_montserrat_16, COL_FG, "----");
 
     bar_rssi = lv_bar_create(p);
-    lv_obj_set_pos(bar_rssi, 168, HDR_Y + 11);
-    lv_obj_set_size(bar_rssi, 50, 8);
+    lv_obj_set_pos(bar_rssi, 184, HDR_Y + 11);
+    lv_obj_set_size(bar_rssi, 34, 8);
     lv_bar_set_range(bar_rssi, 0, 5);
     lv_bar_set_value(bar_rssi, 0, LV_ANIM_OFF);
     lv_obj_set_style_bg_color(bar_rssi, COL_INACTIVE, LV_PART_MAIN);
@@ -164,7 +164,7 @@ static void build_header(lv_obj_t *p) {
     lv_obj_set_style_bg_color(bar_rssi, COL_FG, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(bar_rssi, LV_OPA_COVER, LV_PART_INDICATOR);
 
-    lbl_rssi_dbm = make_label(p, 168, HDR_Y + 20,
+    lbl_rssi_dbm = make_label(p, 184, HDR_Y + 20,
                               &lv_font_montserrat_12, COL_DIM, "-- dBm");
 
     lbl_battery_pct = make_label(p, 232, HDR_Y + 10,
@@ -197,11 +197,13 @@ static void build_layer(lv_obj_t *p) {
 
 static void build_config(lv_obj_t *p) {
     int y = CFG_Y + 6;
-    lbl_os       = make_label(p, 8,   y, &lv_font_montserrat_14, COL_FG,  "OS --");
-    lbl_cpi      = make_label(p, 68,  y, &lv_font_montserrat_14, COL_FG,  "CPI ----");
-    lbl_scrl     = make_label(p, 140, y, &lv_font_montserrat_14, COL_FG,  "SCRL --");
-    lbl_ble_pill = make_label(p, 208, y, &lv_font_montserrat_14, COL_DIM, "BLE -");
-    lbl_usb_pill = make_label(p, 246, y, &lv_font_montserrat_14, COL_DIM, "USB");
+    /* Widths at Montserrat 14: "OS WIN"~50, "CPI 3200"~64, "SCRL L3"~52,
+     * "BLE 4"~40, "USB"~32. Lay out left-to-right with ~8px gaps. */
+    lbl_os       = make_label(p, 4,   y, &lv_font_montserrat_14, COL_FG,  "OS --");
+    lbl_cpi      = make_label(p, 60,  y, &lv_font_montserrat_14, COL_FG,  "CPI ----");
+    lbl_scrl     = make_label(p, 132, y, &lv_font_montserrat_14, COL_FG,  "SCRL --");
+    lbl_ble_pill = make_label(p, 196, y, &lv_font_montserrat_14, COL_DIM, "BLE -");
+    lbl_usb_pill = make_label(p, 244, y, &lv_font_montserrat_14, COL_DIM, "USB");
 }
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y,
