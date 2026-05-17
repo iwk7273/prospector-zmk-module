@@ -579,23 +579,25 @@ static void build_layer(lv_obj_t *p) {
  *
  * Layout, left-to-right, font_montserrat_16 except prefix (14):
  *   prefix at x=58           ("H:" / "W:", left-aligned, ~14 px)
- *   bar    at x=74,  w=86    (right edge 160)
- *   pct    at x=164, w=38    (right edge 202; "100%" worst case ~37 px)
- *   eta_a  at x=204, w=28    (right edge 232; "23h"  worst case ~28 px)
- *   eta_b  at x=236, w=40    (right edge 276; "59m"  worst case ~32 px,
- *                             4 px margin to screen so the trailing 'm'
- *                             never grazes the edge)
+ *   bar    at x=74,  w=78    (right edge 152; shrunk from 86 to free
+ *                             8 px of headroom on the right)
+ *   pct    at x=156, w=38    (right edge 194; "100%" worst case ~37 px)
+ *   eta_a  at x=196, w=28    (right edge 224; "23h"  worst case ~28 px)
+ *   eta_b  at x=228, w=40    (right edge 268; "59m" / "23h" worst case
+ *                             ~32 px, **12 px** margin to the screen
+ *                             edge so the trailing 'h' / 'm' is never
+ *                             grazed by display overscan)
  * Splitting ETA into two right-aligned slots tabulates the unit suffixes:
  * 'h'/'d' always lands inside eta_a's right edge, 'm'/'h' inside eta_b's,
  * so rows line up vertically regardless of which format each row is in. */
 #define RATE_LBL_PREFIX_X  58
 #define RATE_BAR_X         74
-#define RATE_BAR_W         86
-#define RATE_LBL_PCT_X     164
+#define RATE_BAR_W         78
+#define RATE_LBL_PCT_X     156
 #define RATE_LBL_PCT_W     38
-#define RATE_LBL_ETA_A_X   204
+#define RATE_LBL_ETA_A_X   196
 #define RATE_LBL_ETA_A_W   28
-#define RATE_LBL_ETA_B_X   236
+#define RATE_LBL_ETA_B_X   228
 #define RATE_LBL_ETA_B_W   40
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
