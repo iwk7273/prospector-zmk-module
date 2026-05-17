@@ -59,7 +59,8 @@ struct zmk_status_adv_v2_header {
     uint8_t keyboard_id[4];     /* matches v1 keyboard_id */
 } __packed;                     /* = 9 bytes */
 
-/* Frame 0 — keyboard-specific custom config. */
+/* Frame 0 — keyboard-specific custom config.
+ * 9 (hdr) + 1 (os) + 2 (cpi) + 1 (sl1) + 1 (sl2) + 2 (sdiv) + 10 (rsv) = 26 */
 struct zmk_status_adv_v2_config {
     struct zmk_status_adv_v2_header hdr;        /* 9 bytes */
     uint8_t  os_mode;                           /* 0=WIN,1=MAC,0xFF=unknown */
@@ -67,7 +68,7 @@ struct zmk_status_adv_v2_config {
     uint8_t  scroll_layer_1;                    /* 0xFF=disabled */
     uint8_t  scroll_layer_2;                    /* 0xFF=disabled */
     uint16_t scroll_div_value;                  /* LE, 0=unknown */
-    uint8_t  reserved[8];                       /* pad to 26 */
+    uint8_t  reserved[10];                      /* pad to 26 */
 } __packed;                                     /* = 26 bytes */
 
 /* Frame 1/2 — layer names in groups of 4. */
