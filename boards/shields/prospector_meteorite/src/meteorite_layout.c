@@ -418,12 +418,19 @@ static lv_obj_t *make_label(lv_obj_t *parent, int x, int y,
 /* Right-aligned numeric label used by the rate rows for pct ("23%") and
  * ETA ("1h 23m"). Fixed-width slot keeps the trailing digit/unit stable
  * as the value width changes. font 16 / COL_DIM until refresh() promotes
- * it to COL_FG when fresh data arrives. */
+ * it to COL_FG when fresh data arrives.
+ *
+ * LV_LABEL_LONG_CLIP is required: LVGL's default LONG_WRAP makes the label
+ * collapse to content width when text fits, leaving LV_TEXT_ALIGN_RIGHT
+ * with nothing to align against — short ETAs ("30m") would anchor their
+ * left edge at x, long ones ("23h 59m") would extend further right, so
+ * the rate rows' right edges would never line up across sources. */
 static lv_obj_t *make_rate_value_label(lv_obj_t *parent, int x, int y,
                                        int w, const char *initial) {
     lv_obj_t *l = lv_label_create(parent);
     lv_obj_set_pos(l, x, y);
     lv_obj_set_size(l, w, 18);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(l, COL_DIM, 0);
     lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
@@ -450,6 +457,7 @@ static void build_header(lv_obj_t *p) {
     lbl_rssi_dbm = lv_label_create(p);
     lv_obj_set_pos(lbl_rssi_dbm, 124, HDR_Y + 11);
     lv_obj_set_size(lbl_rssi_dbm, 76, 16);
+    lv_label_set_long_mode(lbl_rssi_dbm, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_font(lbl_rssi_dbm, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_rssi_dbm, COL_FG, 0);
     lv_obj_set_style_text_align(lbl_rssi_dbm, LV_TEXT_ALIGN_RIGHT, 0);
@@ -483,6 +491,7 @@ static void build_header(lv_obj_t *p) {
     lbl_battery_pct = lv_label_create(p);
     lv_obj_set_pos(lbl_battery_pct, 232, HDR_Y + 10);
     lv_obj_set_size(lbl_battery_pct, 36, 18);
+    lv_label_set_long_mode(lbl_battery_pct, LV_LABEL_LONG_CLIP);
     lv_obj_set_style_text_font(lbl_battery_pct, &lv_font_montserrat_16, 0);
     lv_obj_set_style_text_color(lbl_battery_pct, COL_FG, 0);
     lv_obj_set_style_text_align(lbl_battery_pct, LV_TEXT_ALIGN_RIGHT, 0);
