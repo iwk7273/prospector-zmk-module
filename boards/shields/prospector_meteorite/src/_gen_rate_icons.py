@@ -3,14 +3,17 @@
 Run this manually whenever an icon needs to change, then paste the output
 into meteorite_layout.c. Not built by the firmware itself.
 
-Generates four icons procedurally so they can be re-rendered at any size:
+Generates four icons:
 
-  rate_icon_claude  — 8-ray Anthropic Sona asterisk (rate-source label)
-  rate_icon_codex   — 6-petal ChatGPT-style rose curve (rate-source label)
-  os_icon_windows   — 4-pane Windows logo (OS-mode indicator)
-  os_icon_apple     — Apple silhouette with leaf + bite (OS-mode indicator)
+  rate_icon_claude  — Anthropic Sona burst: 4 cardinal "spindle" petals +
+                      4 thinner diagonal petals (procedural, 32x32)
+  rate_icon_codex   — ChatGPT-style 6-lobe knot: six overlapping circles
+                      around a hex-shaped void (procedural, 32x32)
+  os_icon_windows   — 4-pane Windows logo (procedural, 24x24)
+  os_icon_apple     — Apple silhouette with bite and leaf
+                      (hand-drawn pixel art, 24x24 only)
 
-Sizes are wired into the __main__ block at the bottom — change them there.
+Sizes are wired into the __main__ block at the bottom.
 """
 
 import math
@@ -20,26 +23,34 @@ import math
 # Pattern generators — each returns a list of strings ("#" = on, "." = off)
 # ============================================================================
 
-def render_claude_asterisk(size: int) -> list[str]:
-    """Anthropic 8-ray asterisk: 4 axes (horizontal, vertical, both
-    diagonals) drawn as constant-thickness strips through the center,
-    plus a full-width 2-row horizontal stroke that gives the mark its
-    distinctive "weighted middle" look. Thickness scales with size."""
+def render_claude_sona(size: int) -> list[str]:
+    """Anthropic Sona mark: four parabolic-spindle petals meeting at the
+    center, pointing N / E / S / W. Width along each petal is
+    pw_max·(1 − t²), so the petals are fattest at the middle and taper
+    to zero at the tip — and (after combining all four) the four petals
+    sweep through the center as a single chunky cross.
+
+    Diagonal petals were tried (asterisk-burst look) but at 32×32 their
+    tips degenerated to isolated dots that read as noise; kept to four
+    clean cardinal petals."""
     cx = cy = (size - 1) / 2
-    thickness = size * 1.5 / 24.0       # ~4-px-wide arms at size=32
-    band_half = max(0.6, size / 24.0)   # 2-row solid center band
+    plen   = size * 0.47
+    pw_max = size * 0.13
     rows = []
     for y in range(size):
         row = []
         for x in range(size):
             dx = x - cx
             dy = y - cy
-            on = abs(dy) <= band_half
-            if not on:
-                for angle_deg in (0, 45, 90, 135):
-                    rad = math.radians(angle_deg)
-                    perp = abs(dx * math.sin(rad) - dy * math.cos(rad))
-                    if perp <= thickness:
+            on = False
+            for angle_deg in (0, 90):
+                rad = math.radians(angle_deg)
+                axis = dx * math.cos(rad) + dy * math.sin(rad)
+                perp = dx * math.sin(rad) - dy * math.cos(rad)
+                if abs(axis) <= plen:
+                    t = abs(axis) / plen
+                    local_w = pw_max * (1.0 - t * t)
+                    if abs(perp) <= local_w:
                         on = True
                         break
             row.append("#" if on else ".")
@@ -47,25 +58,38 @@ def render_claude_asterisk(size: int) -> list[str]:
     return rows
 
 
-def render_codex_rose(size: int) -> list[str]:
-    """6-lobe rose curve evoking the ChatGPT hexagonal knot. Filled lobes
-    (r = inner_void .. inner + amp*|cos(3θ)|) — cleaner at 32x32 than the
-    earlier hollow-outline variant which left noise in the inter-lobe
-    valleys. One petal points straight up."""
+def render_codex_knot(size: int) -> list[str]:
+    """ChatGPT-style 6-lobe knot: six overlapping circles placed at 60°
+    intervals around the center, with a small central void. Adjacent
+    circles overlap (petal_dist < 2*petal_r) so the silhouette reads as
+    a single 6-fold flower/knot rather than six isolated dots.
+
+    One petal points straight up (90° rotation), matching the canonical
+    orientation of the OpenAI/ChatGPT mark."""
     cx = cy = (size - 1) / 2
-    inner_r    = size * 3.5 / 24.0
-    amp        = size * 7.0 / 24.0
-    inner_void = size * 2.5 / 24.0
+    petal_r       = size * 0.22
+    petal_dist    = size * 0.28
+    inner_void_r  = size * 0.10
+    centers = []
+    for i in range(6):
+        angle = math.radians(i * 60 + 90)
+        centers.append((petal_dist * math.cos(angle),
+                        petal_dist * math.sin(angle)))
     rows = []
     for y in range(size):
         row = []
         for x in range(size):
             dx = x - cx
             dy = y - cy
-            r = math.hypot(dx, dy)
-            theta = math.atan2(dy, dx)
-            target_r = inner_r + amp * abs(math.cos(3 * theta + math.pi / 2))
-            on = (inner_void <= r <= target_r)
+            on = False
+            for px, py in centers:
+                pdx = dx - px
+                pdy = dy - py
+                if pdx * pdx + pdy * pdy <= petal_r * petal_r:
+                    on = True
+                    break
+            if on and (dx * dx + dy * dy) < inner_void_r * inner_void_r:
+                on = False
             row.append("#" if on else ".")
         rows.append("".join(row))
     return rows
@@ -87,38 +111,41 @@ def render_os_win(size: int) -> list[str]:
     return rows
 
 
+# Hand-drawn 24x24 Apple silhouette. Procedural ellipse + bite math at
+# this size could not reliably keep the bite, the leaf, and the round
+# body all recognizable at once, so the pattern is laid out by hand.
+APPLE_24 = [
+    "........................",
+    ".............##.........",
+    "............####........",
+    "...........#####........",
+    "..........####..........",
+    ".........####...........",
+    "........####....##......",
+    ".......######..####.....",
+    ".....##########.####....",
+    "....################....",
+    "...##################...",
+    "..####################..",
+    "..####################..",
+    "..####################..",
+    "..####################..",
+    "..####################..",
+    "..####################..",
+    "...##################...",
+    "....################....",
+    ".....##############.....",
+    "......############......",
+    ".......##########.......",
+    "........########........",
+    ".........######.........",
+]
+
+
 def render_os_apple(size: int) -> list[str]:
-    """Apple silhouette: elliptical body, small circular bite at the
-    upper-right, single leaf above. All sized relative to `size` so the
-    same generator works at 16, 24, 32..."""
-    cx = (size - 1) / 2
-    cy = (size - 1) / 2 + size * 0.06
-    rx = size * 0.40
-    ry = size * 0.44
-    bite_cx = cx + size * 0.36
-    bite_cy = cy - size * 0.25
-    bite_r  = size * 0.18
-    leaf_cx = cx + size * 0.10
-    leaf_cy = cy - ry - size * 0.05
-    leaf_rx = size * 0.07
-    leaf_ry = size * 0.10
-    rows = []
-    for y in range(size):
-        row = []
-        for x in range(size):
-            ndx = (x - cx) / rx
-            ndy = (y - cy) / ry
-            in_body = ndx * ndx + ndy * ndy <= 1.0
-            bdx = x - bite_cx
-            bdy = y - bite_cy
-            in_bite = bdx * bdx + bdy * bdy <= bite_r * bite_r
-            ldx = (x - leaf_cx) / leaf_rx
-            ldy = (y - leaf_cy) / leaf_ry
-            in_leaf = ldx * ldx + ldy * ldy <= 1.0
-            on = (in_body and not in_bite) or in_leaf
-            row.append("#" if on else ".")
-        rows.append("".join(row))
-    return rows
+    """Hand-drawn pixel art — only 24x24 is defined. See APPLE_24."""
+    assert size == 24, "os_icon_apple is hand-drawn at 24x24 only"
+    return APPLE_24
 
 
 # ============================================================================
@@ -151,10 +178,7 @@ def emit_c(name: str, rows: list[str], size: int) -> None:
 
 
 if __name__ == "__main__":
-    # Rate-source icons enlarged to 32x32 (was 24x24).
-    emit_c("rate_icon_claude", render_claude_asterisk(32), 32)
-    emit_c("rate_icon_codex",  render_codex_rose(32),      32)
-    # OS-mode icons enlarged to 24x24 (was 16x16) so they read as
-    # primary status indicators next to the BLE/USB pills.
-    emit_c("os_icon_windows",  render_os_win(24),          24)
-    emit_c("os_icon_apple",    render_os_apple(24),        24)
+    emit_c("rate_icon_claude", render_claude_sona(32), 32)
+    emit_c("rate_icon_codex",  render_codex_knot(32),  32)
+    emit_c("os_icon_windows",  render_os_win(24),      24)
+    emit_c("os_icon_apple",    render_os_apple(24),    24)
