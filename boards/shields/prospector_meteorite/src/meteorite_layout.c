@@ -28,29 +28,40 @@ LOG_MODULE_REGISTER(meteorite_layout, CONFIG_ZMK_LOG_LEVEL);
 #define HDR_Y     0
 #define HDR_H     36
 
+/* Layer zone now absorbs the former CFG strip (CPI/SCRL moved below the
+ * "L0 BASE" label). RATE zone stays where it was — moving it would force
+ * everything below to reshuffle without buying real estate the rate rows
+ * actually need. */
 #define LAYER_Y   36
-#define LAYER_H   84
-
-#define CFG_Y     120
-#define CFG_H     28
+#define LAYER_H   112
 
 #define RATE_Y    148
 #define RATE_H    92
 
 /* Layer zone is split into a left "big layer label" panel and a right
- * connectivity-status stack (OS icons + BLE + USB pills). LAYER_LEFT_W
- * is the layer label's reserved width; LAYER_RIGHT_X is where the right
- * panel starts. A 1-px COL_SEP divider sits between them. */
-#define LAYER_LEFT_W   186
+ * connectivity-status panel (OS icons + BLE + USB pills). Left panel
+ * narrowed to 158 so the right panel can fit BLE and USB pills
+ * side-by-side (was vertically stacked). */
+#define LAYER_LEFT_W   158
 #define LAYER_DIV_X    (LAYER_LEFT_W + 2)
 #define LAYER_RIGHT_X  (LAYER_DIV_X + 6)
 
 /* Bar corner radii. Main rate bar is 10px tall → radius 5 = pill ends.
- * Pace bar is 2px tall → radius 1 still rounds visibly. RSSI bar is 8px
- * → radius 4 = pill. */
+ * RSSI signal-bars don't use a bar widget anymore; phone-style ascending
+ * rectangles instead. */
 #define BAR_RATE_RADIUS   5
-#define BAR_PACE_RADIUS   1
-#define BAR_RSSI_RADIUS   4
+
+/* Pace tick (vertical line at elapsed-ratio of the window) replaces the
+ * earlier thin horizontal pace bar — a single tick reads as a "you
+ * should be here" marker against the main usage bar. */
+#define PACE_TICK_W   2
+#define PACE_TICK_H   14
+
+/* Phone-style RSSI signal icon: 5 ascending vertical bars. Heights
+ * 3,5,7,9,11px; each 3px wide with 2px gaps. Total footprint ~23×11px. */
+#define SIGNAL_BAR_COUNT  5
+#define SIGNAL_BAR_W      3
+#define SIGNAL_BAR_GAP    2
 
 /* v2 ext-adv fields go stale 30s after the last received packet, even if
  * the v1 stream is still flowing. v2 cadence is ~1Hz so this is generous. */
@@ -99,20 +110,17 @@ static lv_obj_t *root             = NULL;
 
 /* Header */
 static lv_obj_t *lbl_kb_name      = NULL;
-static lv_obj_t *bar_rssi         = NULL;
 static lv_obj_t *lbl_rssi_dbm     = NULL;
+static lv_obj_t *signal_bars[SIGNAL_BAR_COUNT] = {0};  /* phone-style 5-bar */
 static lv_obj_t *lbl_battery_pct  = NULL;
 
-/* Layer zone */
-static lv_obj_t *lbl_layer_main   = NULL;  /* "L0 BASE" — sublayer list removed per UX request */
-
-/* Config zone */
+/* Layer zone — left half: big "L0 BASE" + CPI/SCRL on a sub-row */
+static lv_obj_t *lbl_layer_main   = NULL;
 static lv_obj_t *lbl_cpi          = NULL;
 static lv_obj_t *lbl_scrl         = NULL;
 
-/* Layer-zone right panel — connectivity + OS-mode status. Both OS icons
- * are always laid out; refresh() tints the detected one COL_ACCENT and
- * the other COL_INACTIVE, mirroring the BLE/USB pill active/dim pattern. */
+/* Layer zone — right half: OS icons (active/inactive tint) and the
+ * BLE/USB pills laid out horizontally side-by-side. */
 static lv_obj_t *img_os_win       = NULL;
 static lv_obj_t *img_os_mac       = NULL;
 static lv_obj_t *lbl_ble_pill     = NULL;
@@ -232,30 +240,30 @@ static const lv_image_dsc_t rate_icon_claude = {
 };
 
 static const uint8_t rate_icon_codex_map[] = {
-    0x00, 0xFF, 0x00,  /*         ########         */
-    0x03, 0xC3, 0xC0,  /*       ####    ####       */
-    0x0E, 0x00, 0x70,  /*     ###          ###     */
-    0x18, 0x00, 0x18,  /*    ##              ##    */
-    0x30, 0x00, 0x0C,  /*   ##                ##   */
-    0x60, 0x00, 0x06,  /*  ##                  ##  */
-    0xC0, 0x00, 0x03,  /* ##                    ## */
-    0xC0, 0x00, 0x03,  /* ##                    ## */
-    0xC0, 0x7E, 0x03,  /* ##       ######       ## */
-    0xC0, 0xC3, 0x03,  /* ##      ##    ##      ## */
-    0xC1, 0x81, 0x83,  /* ##     ##      ##     ## */
-    0xC1, 0x81, 0x83,  /* ##     ##      ##     ## */
-    0xC1, 0x81, 0x83,  /* ##     ##      ##     ## */
-    0xC1, 0x81, 0x83,  /* ##     ##      ##     ## */
-    0xC0, 0xC3, 0x03,  /* ##      ##    ##      ## */
-    0xC0, 0x7E, 0x03,  /* ##       ######       ## */
-    0xC0, 0x00, 0x03,  /* ##                    ## */
-    0xC0, 0x00, 0x03,  /* ##                    ## */
-    0x60, 0x00, 0x06,  /*  ##                  ##  */
-    0x30, 0x00, 0x0C,  /*   ##                ##   */
-    0x18, 0x00, 0x18,  /*    ##              ##    */
-    0x0E, 0x00, 0x70,  /*     ###          ###     */
-    0x03, 0xC3, 0xC0,  /*       ####    ####       */
-    0x00, 0xFF, 0x00,  /*         ########         */
+    0x00, 0x18, 0x00,  /*            ##            */
+    0x00, 0x3C, 0x00,  /*           ####           */
+    0x00, 0x3C, 0x00,  /*           ####           */
+    0x00, 0x7E, 0x00,  /*          ######          */
+    0x00, 0x66, 0x00,  /*          ##  ##          */
+    0x1C, 0x42, 0x38,  /*    ###   #    #   ###    */
+    0x3F, 0x42, 0xFC,  /*   ###### #    # ######   */
+    0x39, 0xC3, 0x9C,  /*   ###  ###    ###  ###   */
+    0x38, 0x42, 0x1C,  /*   ###    #    #    ###   */
+    0x18, 0x24, 0x18,  /*    ##     #  #     ##    */
+    0x0C, 0x00, 0x30,  /*     ##            ##     */
+    0x07, 0x00, 0xE0,  /*      ###        ###      */
+    0x07, 0x00, 0xE0,  /*      ###        ###      */
+    0x0C, 0x00, 0x30,  /*     ##            ##     */
+    0x18, 0x24, 0x18,  /*    ##     #  #     ##    */
+    0x38, 0x42, 0x1C,  /*   ###    #    #    ###   */
+    0x39, 0xC3, 0x9C,  /*   ###  ###    ###  ###   */
+    0x3F, 0x42, 0xFC,  /*   ###### #    # ######   */
+    0x1C, 0x42, 0x38,  /*    ###   #    #   ###    */
+    0x00, 0x66, 0x00,  /*          ##  ##          */
+    0x00, 0x7E, 0x00,  /*          ######          */
+    0x00, 0x3C, 0x00,  /*           ####           */
+    0x00, 0x3C, 0x00,  /*           ####           */
+    0x00, 0x18, 0x00,  /*            ##            */
 };
 
 static const lv_image_dsc_t rate_icon_codex = {
@@ -272,9 +280,11 @@ static const lv_image_dsc_t rate_icon_codex = {
 };
 
 /* Rate zone (2 sources × 2 rows). The source label is now a 24x24 icon
- * spanning both rows (icon_src[src]) — no per-row src label anymore. */
+ * spanning both rows (icon_src[src]) — no per-row src label anymore.
+ * bar_pace_tick is a vertical line, sliding along the bar at the
+ * elapsed-ratio position — a "you should be here" marker. */
 struct rate_row_widgets {
-    lv_obj_t *bar_pace;      /* thin elapsed-ratio bar above the main bar */
+    lv_obj_t *bar_pace_tick;
     lv_obj_t *bar;
     lv_obj_t *label_pct;
     lv_obj_t *label_eta;
@@ -369,45 +379,62 @@ static void build_header(lv_obj_t *p) {
     lbl_kb_name = make_label(p, 12, HDR_Y + 10,
                              &lv_font_montserrat_16, COL_FG, "----");
 
-    /* dBm number sits left of the bar, right-aligned so trailing digits
-     * stay flush. Widened to 60px to fit "-127 dBm" cleanly, and brightened
-     * to COL_FG (was COL_DIM) so the actual RSSI reading is legible at a
-     * glance rather than being secondary to the bar. */
+    /* "-127 dBm" at font 14 needs ~64-70 px. Widen to 70 (was 60, where
+     * "dBm" was wrapping) and right-align so the trailing unit stays flush
+     * against the signal-bars icon to the right. COL_FG (was COL_DIM) so
+     * the dBm number is the primary readout, not secondary to the icon. */
     lbl_rssi_dbm = lv_label_create(p);
-    lv_obj_set_pos(lbl_rssi_dbm, 120, HDR_Y + 11);
-    lv_obj_set_size(lbl_rssi_dbm, 60, 16);
+    lv_obj_set_pos(lbl_rssi_dbm, 104, HDR_Y + 11);
+    lv_obj_set_size(lbl_rssi_dbm, 76, 16);
     lv_obj_set_style_text_font(lbl_rssi_dbm, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(lbl_rssi_dbm, COL_FG, 0);
     lv_obj_set_style_text_align(lbl_rssi_dbm, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(lbl_rssi_dbm, "-- dBm");
 
-    bar_rssi = lv_bar_create(p);
-    lv_obj_set_pos(bar_rssi, 184, HDR_Y + 14);
-    lv_obj_set_size(bar_rssi, 34, 8);
-    lv_bar_set_range(bar_rssi, 0, 5);
-    lv_bar_set_value(bar_rssi, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(bar_rssi, COL_INACTIVE, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(bar_rssi, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(bar_rssi, COL_FG, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(bar_rssi, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(bar_rssi, BAR_RSSI_RADIUS, LV_PART_MAIN);
-    lv_obj_set_style_radius(bar_rssi, BAR_RSSI_RADIUS, LV_PART_INDICATOR);
+    /* Phone-style 5-bar signal icon: ascending heights, bottom-aligned at
+     * a common baseline so the bars look like a staircase. Each bar gets
+     * tinted GOOD/WARN/BAD by refresh() based on rssi_to_bars(); unfilled
+     * bars stay COL_INACTIVE so the icon is always 5 bars wide regardless
+     * of signal strength. */
+    int sig_x      = 186;
+    int sig_baseline_y = HDR_Y + 26;          /* common bottom edge */
+    for (int i = 0; i < SIGNAL_BAR_COUNT; i++) {
+        int h = 3 + i * 2;                    /* 3, 5, 7, 9, 11 */
+        int x = sig_x + i * (SIGNAL_BAR_W + SIGNAL_BAR_GAP);
+        int y = sig_baseline_y - h;
+        lv_obj_t *b = lv_obj_create(p);
+        lv_obj_remove_style_all(b);
+        lv_obj_set_pos(b, x, y);
+        lv_obj_set_size(b, SIGNAL_BAR_W, h);
+        lv_obj_set_style_bg_color(b, COL_INACTIVE, 0);
+        lv_obj_set_style_bg_opa(b, LV_OPA_COVER, 0);
+        lv_obj_set_style_radius(b, 1, 0);
+        signal_bars[i] = b;
+    }
 
     lbl_battery_pct = make_label(p, 232, HDR_Y + 10,
                                  &lv_font_montserrat_16, COL_FG, "--%");
 }
 
 static void build_layer(lv_obj_t *p) {
-    /* Big "L0 BASE" label — left-aligned in the layer zone's left 2/3
-     * (LAYER_LEFT_W reserved). Vertically centered: LAYER_H=84, font
-     * height ~36, so a +24 offset from LAYER_Y gives reasonable centering. */
+    /* "L0 BASE" — left-aligned in the layer zone's narrower left panel.
+     * Dropped from font_28 to font_24 so the right panel can take more
+     * width (fits BLE + USB horizontally) without crowding the label. */
     lbl_layer_main = lv_label_create(p);
-    lv_obj_set_style_text_font(lbl_layer_main, &lv_font_montserrat_28, 0);
+    lv_obj_set_style_text_font(lbl_layer_main, &lv_font_montserrat_24, 0);
     lv_obj_set_style_text_color(lbl_layer_main, COL_FG, 0);
     lv_label_set_text(lbl_layer_main, "L- ----");
-    lv_obj_set_pos(lbl_layer_main, 16, LAYER_Y + 24);
+    lv_obj_set_pos(lbl_layer_main, 14, LAYER_Y + 12);
 
-    /* Vertical divider between the layer label and the right status stack.
+    /* CPI + SCRL moved here from the former CFG strip — they're
+     * configuration affecting the current layer, so they live with
+     * "L0 BASE" rather than down at the bottom. Compact font_14. */
+    lbl_cpi  = make_label(p, 14, LAYER_Y + 50,
+                          &lv_font_montserrat_14, COL_FG, "CPI ----");
+    lbl_scrl = make_label(p, 14, LAYER_Y + 70,
+                          &lv_font_montserrat_14, COL_FG, "SCRL --");
+
+    /* Vertical divider between the layer label and the right status panel.
      * Built as an anonymous strip (no handle kept) — it has no state and
      * tears down with the parent screen. */
     lv_obj_t *sep = lv_obj_create(p);
@@ -417,56 +444,31 @@ static void build_layer(lv_obj_t *p) {
     lv_obj_set_style_bg_color(sep, COL_SEP, 0);
     lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
 
-    /* ---- Right panel: OS icons (row 1), BLE pill (row 2), USB pill (row 3).
-     * All left-aligned at x_left for a tidy column; rows spaced ~22px. */
+    /* ---- Right panel: OS icons on top, BLE + USB pills side-by-side
+     * below. Two compact rows instead of the previous three-row stack. */
     int x_left = LAYER_RIGHT_X + 4;
 
     img_os_win = lv_image_create(p);
-    lv_obj_set_pos(img_os_win, x_left, LAYER_Y + 12);
+    lv_obj_set_pos(img_os_win, x_left, LAYER_Y + 14);
     lv_image_set_src(img_os_win, &os_icon_windows);
     lv_obj_set_style_image_recolor(img_os_win, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img_os_win, LV_OPA_COVER, 0);
 
     img_os_mac = lv_image_create(p);
-    lv_obj_set_pos(img_os_mac, x_left + 26, LAYER_Y + 12);
+    lv_obj_set_pos(img_os_mac, x_left + 26, LAYER_Y + 14);
     lv_image_set_src(img_os_mac, &os_icon_apple);
     lv_obj_set_style_image_recolor(img_os_mac, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img_os_mac, LV_OPA_COVER, 0);
 
-    lbl_ble_pill = make_label(p, x_left, LAYER_Y + 36,
+    /* BLE / USB horizontal row, beneath the OS icons. */
+    lbl_ble_pill = make_label(p, x_left, LAYER_Y + 50,
                               &lv_font_montserrat_14, COL_DIM, "BLE -");
-    lbl_usb_pill = make_label(p, x_left, LAYER_Y + 58,
+    lbl_usb_pill = make_label(p, x_left + 52, LAYER_Y + 50,
                               &lv_font_montserrat_14, COL_DIM, "USB");
-}
-
-static void build_config(lv_obj_t *p) {
-    /* OS / BLE / USB moved up to the layer zone's right panel, so this
-     * strip is just CPI + SCRL now. Distribute across the full width with
-     * comfortable margins instead of cramming them on the left. */
-    int y_text = CFG_Y + 6;
-    lbl_cpi  = make_label(p,  12, y_text, &lv_font_montserrat_14, COL_FG,
-                          "CPI ----");
-    lbl_scrl = make_label(p, 152, y_text, &lv_font_montserrat_14, COL_FG,
-                          "SCRL --");
 }
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     struct rate_row_widgets *w = &rate_rows[src][row];
-
-    /* Pace bar (elapsed-ratio of the window): 2px above the main bar.
-     * Subtle dim indicator so it reads as a tick mark, not a competing
-     * usage bar. The main bar's pace-coded color is the primary signal. */
-    w->bar_pace = lv_bar_create(p);
-    lv_obj_set_pos(w->bar_pace, 60, y + 0);
-    lv_obj_set_size(w->bar_pace, 110, 2);
-    lv_bar_set_range(w->bar_pace, 0, 100);
-    lv_bar_set_value(w->bar_pace, 0, LV_ANIM_OFF);
-    lv_obj_set_style_bg_color(w->bar_pace, COL_INACTIVE, LV_PART_MAIN);
-    lv_obj_set_style_bg_opa(w->bar_pace, LV_OPA_COVER, LV_PART_MAIN);
-    lv_obj_set_style_bg_color(w->bar_pace, COL_DIM, LV_PART_INDICATOR);
-    lv_obj_set_style_bg_opa(w->bar_pace, LV_OPA_COVER, LV_PART_INDICATOR);
-    lv_obj_set_style_radius(w->bar_pace, BAR_PACE_RADIUS, LV_PART_MAIN);
-    lv_obj_set_style_radius(w->bar_pace, BAR_PACE_RADIUS, LV_PART_INDICATOR);
 
     w->bar = lv_bar_create(p);
     lv_obj_set_pos(w->bar, 60, y + 4);
@@ -479,6 +481,20 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     lv_obj_set_style_bg_opa(w->bar, LV_OPA_COVER, LV_PART_INDICATOR);
     lv_obj_set_style_radius(w->bar, BAR_RATE_RADIUS, LV_PART_MAIN);
     lv_obj_set_style_radius(w->bar, BAR_RATE_RADIUS, LV_PART_INDICATOR);
+
+    /* Pace tick: a vertical line that slides along the bar at the
+     * elapsed-ratio position. Slightly taller than the main bar (PACE_TICK_H
+     * vs bar height 10) so it pokes above/below — easy to spot even when
+     * the bar itself is fully colored. COL_FG (white) reads against every
+     * pace-color the main bar takes (green/yellow/red). */
+    w->bar_pace_tick = lv_obj_create(p);
+    lv_obj_remove_style_all(w->bar_pace_tick);
+    lv_obj_set_pos(w->bar_pace_tick, 60, y + 4 - 2);
+    lv_obj_set_size(w->bar_pace_tick, PACE_TICK_W, PACE_TICK_H);
+    lv_obj_set_style_bg_color(w->bar_pace_tick, COL_FG, 0);
+    lv_obj_set_style_bg_opa(w->bar_pace_tick, LV_OPA_COVER, 0);
+    lv_obj_set_style_radius(w->bar_pace_tick, 1, 0);
+    lv_obj_add_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
 
     w->label_pct = make_label(p, 176, y + 2,
                               &lv_font_montserrat_14, COL_DIM, "--%");
@@ -496,8 +512,9 @@ static void build_rate_icon(lv_obj_t *p, int src, int row0_y,
     lv_obj_t *img = lv_image_create(p);
     /* Row 0 bars occupy row0_y .. row0_y+14 and row 1 occupies row0_y+22 ..
      * row0_y+36. Mid-point ≈ row0_y+18; a 24px icon centered on that lands
-     * at row0_y+6. */
-    lv_obj_set_pos(img, 6, row0_y + 6);
+     * at row0_y+6. x=14 pushes the icon off the very edge for a small
+     * left margin. */
+    lv_obj_set_pos(img, 14, row0_y + 6);
     lv_image_set_src(img, icon);
     lv_obj_set_style_image_recolor(img, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
@@ -529,7 +546,6 @@ void meteorite_layout_create(lv_obj_t *parent) {
 
     build_header(parent);
     build_layer(parent);
-    build_config(parent);
     build_rate(parent);
 
     LOG_INF("meteorite_layout created");
@@ -540,7 +556,6 @@ void meteorite_layout_destroy(void) {
      * tear-down is the system's responsibility — we just drop our handles. */
     root             = NULL;
     lbl_kb_name      = NULL;
-    bar_rssi         = NULL;
     lbl_rssi_dbm     = NULL;
     lbl_battery_pct  = NULL;
     lbl_layer_main   = NULL;
@@ -550,8 +565,9 @@ void meteorite_layout_destroy(void) {
     img_os_mac       = NULL;
     lbl_ble_pill     = NULL;
     lbl_usb_pill     = NULL;
-    memset(rate_rows, 0, sizeof(rate_rows));
-    memset(icon_src,  0, sizeof(icon_src));
+    memset(signal_bars, 0, sizeof(signal_bars));
+    memset(rate_rows,   0, sizeof(rate_rows));
+    memset(icon_src,    0, sizeof(icon_src));
 }
 
 void meteorite_layout_refresh(void) {
@@ -572,17 +588,20 @@ void meteorite_layout_refresh(void) {
         lv_label_set_text(lbl_kb_name,
             s.has_keyboard ? s.keyboard_name : "Scanning...");
     }
-    if (bar_rssi && lbl_rssi_dbm) {
+    if (lbl_rssi_dbm) {
+        uint8_t bars = s.has_keyboard ? rssi_to_bars(s.rssi_dbm) : 0;
+        lv_color_t fill = bars >= 3 ? COL_GOOD
+                        : bars >= 2 ? COL_WARN
+                                    : COL_BAD;
+        for (int i = 0; i < SIGNAL_BAR_COUNT; i++) {
+            if (!signal_bars[i]) continue;
+            lv_obj_set_style_bg_color(signal_bars[i],
+                i < bars ? fill : COL_INACTIVE, 0);
+        }
         if (s.has_keyboard) {
-            uint8_t bars = rssi_to_bars(s.rssi_dbm);
-            lv_bar_set_value(bar_rssi, bars, LV_ANIM_OFF);
-            lv_obj_set_style_bg_color(bar_rssi,
-                bars >= 3 ? COL_GOOD : bars >= 2 ? COL_WARN : COL_BAD,
-                LV_PART_INDICATOR);
             snprintf(buf, sizeof(buf), "%d dBm", (int)s.rssi_dbm);
             lv_label_set_text(lbl_rssi_dbm, buf);
         } else {
-            lv_bar_set_value(bar_rssi, 0, LV_ANIM_OFF);
             lv_label_set_text(lbl_rssi_dbm, "-- dBm");
         }
     }
@@ -704,7 +723,7 @@ void meteorite_layout_refresh(void) {
                 lv_bar_set_value(w->bar, 0, LV_ANIM_OFF);
                 lv_obj_set_style_bg_color(w->bar, COL_INACTIVE,
                                           LV_PART_INDICATOR);
-                lv_bar_set_value(w->bar_pace, 0, LV_ANIM_OFF);
+                lv_obj_add_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
                 lv_label_set_text(w->label_pct, "--%");
                 lv_label_set_text(w->label_eta, "--:--");
                 lv_obj_set_style_text_color(w->label_pct, COL_DIM, 0);
@@ -715,7 +734,12 @@ void meteorite_layout_refresh(void) {
                 lv_bar_set_value(w->bar, pct, LV_ANIM_OFF);
                 lv_obj_set_style_bg_color(w->bar,
                     pace_color(pct, elapsed_pct), LV_PART_INDICATOR);
-                lv_bar_set_value(w->bar_pace, elapsed_pct, LV_ANIM_OFF);
+                /* Slide the pace tick along the bar (x = bar_x + bar_w *
+                 * elapsed_pct / 100), centered on its 2px width. */
+                int tick_x = 60 + (110 * (int)elapsed_pct) / 100
+                           - PACE_TICK_W / 2;
+                lv_obj_set_x(w->bar_pace_tick, tick_x);
+                lv_obj_clear_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
                 snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
                 lv_label_set_text(w->label_pct, buf);
                 fmt_eta(buf, sizeof(buf), remaining);

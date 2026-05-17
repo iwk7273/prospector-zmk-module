@@ -8,10 +8,13 @@
  * Screen geometry: 280 (W) x 240 (H), ST7789V mounted in landscape.
  *
  * Zones:
- *   Header   (y=0..36)     keyboard name, RSSI bar+dBm, battery %
- *   Layer    (y=36..120)   big active layer "Ln NAME", sub layer list
- *   Config   (y=120..148)  OS mode | CPI | SCRL | BLE pill | USB pill
- *   Rate     (y=148..240)  Codex / Claude 5h+weekly bars and reset time
+ *   Header   (y=0..36)     keyboard name, RSSI dBm + phone-style signal
+ *                          bars, battery %
+ *   Layer    (y=36..148)   left panel: big "Ln NAME" + CPI/SCRL sub-row
+ *                          right panel: Win/Mac OS icons + BLE/USB pills
+ *                          (1-px COL_SEP divider between panels)
+ *   Rate     (y=148..240)  Codex / Claude 5h+weekly bars + pace tick
+ *                          + ETA, source-brand 24x24 icons on the left
  */
 
 #pragma once
