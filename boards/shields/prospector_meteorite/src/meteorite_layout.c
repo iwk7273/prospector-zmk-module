@@ -38,8 +38,15 @@ LOG_MODULE_REGISTER(meteorite_layout, CONFIG_ZMK_LOG_LEVEL);
 #define RATE_H    92
 
 /* v2 ext-adv fields go stale 30s after the last received packet, even if
- * the v1 stream is still flowing. Mirrors the rate-limit stale window. */
+ * the v1 stream is still flowing. v2 cadence is ~1Hz so this is generous. */
 #define V2_STALE_MS  30000u
+
+/* Rate-limit values arrive from the host PC daemon at a 5-minute cadence
+ * (matching claude-usage-widget's polling interval). Hold them on screen
+ * for 10 minutes so a single missed poll (laptop briefly asleep, transient
+ * network blip) does not flicker the row back to "--". After 10 minutes of
+ * silence, treat the daemon as dead and surface that as "--". */
+#define RATE_STALE_MS  (10u * 60u * 1000u)
 
 /* ========== Colors (single palette for Phase 1) ========== */
 
@@ -482,7 +489,7 @@ void meteorite_layout_refresh(void) {
     for (int src = 0; src < METEORITE_RATE_COUNT; src++) {
         const struct meteorite_rate_limit *r = &s.rate[src];
         bool stale = !r->valid ||
-                     (now_ms - r->captured_at_ms) > 30u * 1000u;
+                     (now_ms - r->captured_at_ms) > RATE_STALE_MS;
 
         for (int row = 0; row < 2; row++) {
             struct rate_row_widgets *w = &rate_rows[src][row];
