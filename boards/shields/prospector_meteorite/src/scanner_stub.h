@@ -106,28 +106,32 @@ int scanner_msg_send_display_refresh(void);
 
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
 /**
- * @brief Push a parsed v2 ext-adv packet into the v2 ring buffer
+ * @brief Push one parsed v2 frame into the v2 ring buffer
  *
  * Lock-free SPSC: called from BT RX thread by status_scanner.c after
- * service-UUID validation. Drained by scanner_get_pending_v2() from
- * the LVGL timer context.
+ * service-UUID validation. Drained by scanner_pop_pending_v2() from
+ * the LVGL timer context, which reassembles frames into the final
+ * meteorite_data snapshot.
  *
- * @param data v2 packet payload (caller-owned, copied internally)
- * @param rssi Signal strength (reserved for future use)
+ * Each v2 packet on the wire is one 26-byte frame; the keyboard cycles
+ * through ZMK_STATUS_ADV_V2_FRAME_COUNT frame_ids over time.
+ *
+ * @param frame v2 frame payload (caller-owned, copied internally)
+ * @param rssi  Signal strength (reserved for future use)
  * @return 0 on success, -ENOSPC if the v2 ring is full
  */
-int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+int scanner_msg_send_v2_data(const union zmk_status_adv_v2_frame *frame,
                              int8_t rssi);
 
 /**
- * @brief Pop the latest v2 packet from the ring buffer
+ * @brief Pop one v2 frame from the ring buffer
  *
- * If multiple packets are queued, drains all but the most recent and
- * returns the latest — v2 carries slow-moving metadata where stale
- * intermediate values offer no value.
+ * Returns the oldest queued frame, FIFO order. Unlike the v1 path we
+ * cannot collapse to "latest" because different frame_ids carry
+ * different fields — each must be applied to the reassembly buffer.
  *
  * @param out Destination (only written when true is returned)
- * @return true if a v2 packet was available, false if the ring was empty
+ * @return true if a v2 frame was available, false if the ring was empty
  */
-bool scanner_get_pending_v2(struct zmk_status_adv_v2_data *out);
+bool scanner_pop_pending_v2(union zmk_status_adv_v2_frame *out);
 #endif

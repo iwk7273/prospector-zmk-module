@@ -27,7 +27,7 @@
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
 #include <zmk/status_advertisement_v2.h>
 /* Scanner shield (e.g. prospector_meteorite) provides the implementation. */
-extern int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+extern int scanner_msg_send_v2_data(const union zmk_status_adv_v2_frame *frame,
                                     int8_t rssi);
 #endif
 
@@ -134,25 +134,31 @@ static void scan_callback(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
             store_device_name(addr, device_name);
         }
 
-        /* Check for Prospector manufacturer data */
+        /* Check for Prospector manufacturer data. v1 and v2 are both
+         * 26-byte payloads under the same legacy ADV transport; the
+         * service UUID byte (data[3]) distinguishes them:
+         *   0xCD = v1 (keyboard state, multi-cycle)
+         *   0xCE = v2 (slow-moving metadata, multi-frame) */
         if (ad_type == BT_DATA_MANUFACTURER_DATA) {
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
-            /* v2 ext-adv packet: 0xABCE service UUID. Independent of v1 — gets
-             * its own dispatch path; never coexists with v1 in one packet. */
-            if (len >= sizeof(struct zmk_status_adv_v2_data) &&
+            /* v2 dispatch first — checked before v1 since both are now
+             * 26 bytes and the v1 path would otherwise log this UUID as
+             * "Non-Prospector device". */
+            if (len >= ZMK_STATUS_ADV_V2_FRAME_SIZE &&
                 buf_copy.data[0] == 0xFF && buf_copy.data[1] == 0xFF &&
                 buf_copy.data[2] == 0xAB && buf_copy.data[3] == 0xCE) {
-                const struct zmk_status_adv_v2_data *v2 =
-                    (const struct zmk_status_adv_v2_data *)buf_copy.data;
+                const union zmk_status_adv_v2_frame *v2 =
+                    (const union zmk_status_adv_v2_frame *)buf_copy.data;
                 int v2_err = scanner_msg_send_v2_data(v2, rssi);
                 if (v2_err) {
                     LOG_DBG("v2 ring full / drop: %d", v2_err);
                 } else {
-                    LOG_DBG("v2 packet dispatched (layers=%u os=%u cpi=%u)",
-                            v2->layer_count, v2->os_mode, v2->cpi_value);
+                    LOG_DBG("v2 frame_id=%u dispatched",
+                            (unsigned)ZMK_STATUS_ADV_V2_DECODE_FRAME_ID(
+                                v2->hdr.ver_frame));
                 }
-                /* Fall through — but the v1 check below will reject since
-                 * service_uuid[1] != 0xCD. */
+                net_buf_simple_pull(&buf_copy, len);
+                continue;  /* don't fall through to v1 / Non-Prospector log */
             }
 #endif
 

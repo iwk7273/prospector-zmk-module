@@ -91,17 +91,20 @@ static bool incoming_pop(struct incoming_adv *out) {
     return true;
 }
 
-/* ========== v2 ext-adv ring buffer (Phase 2) ========== */
+/* ========== v2 multi-frame ring buffer (Phase 2 redesign) ========== */
 
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
 
-#define INCOMING_V2_BUF_SIZE 4  /* Must be power of 2; v2 cadence is ~1Hz */
+/* Sized to hold one full v2 cycle (= ZMK_STATUS_ADV_V2_FRAME_COUNT) plus
+ * slack, so a slow drain won't lose frames. Each v2 frame carries a
+ * different slice of the snapshot so we can't collapse to latest. */
+#define INCOMING_V2_BUF_SIZE 8  /* Must be power of 2 */
 
-static struct zmk_status_adv_v2_data incoming_v2_buf[INCOMING_V2_BUF_SIZE];
+static union zmk_status_adv_v2_frame incoming_v2_buf[INCOMING_V2_BUF_SIZE];
 static volatile uint8_t incoming_v2_write_idx;
 static volatile uint8_t incoming_v2_read_idx;
 
-int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+int scanner_msg_send_v2_data(const union zmk_status_adv_v2_frame *frame,
                              int8_t rssi) {
     ARG_UNUSED(rssi);  /* v2 doesn't use RSSI today — kept in API for symmetry */
 
@@ -111,25 +114,17 @@ int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
     if (next == ri) {
         return -ENOMEM;
     }
-    incoming_v2_buf[wi] = *data;
+    incoming_v2_buf[wi] = *frame;
     __DMB();
     incoming_v2_write_idx = next;
     return 0;
 }
 
-bool scanner_get_pending_v2(struct zmk_status_adv_v2_data *out) {
+bool scanner_pop_pending_v2(union zmk_status_adv_v2_frame *out) {
     uint8_t ri = incoming_v2_read_idx & (INCOMING_V2_BUF_SIZE - 1);
     uint8_t wi = incoming_v2_write_idx & (INCOMING_V2_BUF_SIZE - 1);
     if (ri == wi) {
         return false;
-    }
-
-    /* Collapse queued packets to the latest: v2 metadata is slow-moving,
-     * so intermediate samples offer no value. */
-    while (ri != wi) {
-        uint8_t next = (ri + 1) & (INCOMING_V2_BUF_SIZE - 1);
-        if (next == wi) break;
-        ri = next;
     }
     *out = incoming_v2_buf[ri];
     __DMB();

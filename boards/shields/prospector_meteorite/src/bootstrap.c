@@ -106,29 +106,62 @@ static void apply_pending_to_data(const struct pending_display_data *p) {
 }
 
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
-static void apply_v2_to_data(const struct zmk_status_adv_v2_data *v2) {
-    /* Layer list: copy into a (count × 5) char[][] so meteorite_data can
-     * accept null-terminated entries. v2 packs 4 chars per slot without
-     * a terminator. */
-    char names[METEORITE_MAX_LAYERS][METEORITE_LAYER_NAME_LEN] = {{0}};
-    uint8_t count = v2->layer_count;
-    if (count > METEORITE_MAX_LAYERS) {
-        count = METEORITE_MAX_LAYERS;
-    }
-    for (uint8_t i = 0; i < count; i++) {
-        memcpy(names[i], v2->layer_names[i],
-               ZMK_STATUS_ADV_V2_LAYER_NAME_LEN);
-        names[i][METEORITE_LAYER_NAME_LEN - 1] = '\0';
-    }
-    meteorite_data_set_layer_list(count, names);
+/* v2 frame reassembly state. Each v2 frame from the keyboard carries
+ * a slice of the snapshot (config OR a 4-layer group). We accumulate
+ * frames into v2_state and re-push the full picture to meteorite_data
+ * on every frame received, so individual fields take effect as soon
+ * as their frame arrives. */
+static struct {
+    bool   layers_seen;     /* at least one layers frame received */
+    uint8_t layer_count;    /* from layer_count_total in any layers frame */
+    char   names[METEORITE_MAX_LAYERS][METEORITE_LAYER_NAME_LEN];
+} v2_state;
 
-    meteorite_data_set_custom_config(
-        v2->os_mode,
-        v2->cpi_value,
-        v2->scroll_layer_1,
-        v2->scroll_layer_2,
-        v2->scroll_div_value
-    );
+static void apply_v2_frame(const union zmk_status_adv_v2_frame *frame) {
+    uint8_t frame_id = ZMK_STATUS_ADV_V2_DECODE_FRAME_ID(frame->hdr.ver_frame);
+
+    switch (frame_id) {
+    case ZMK_STATUS_ADV_V2_FRAME_CONFIG: {
+        const struct zmk_status_adv_v2_config *cfg = &frame->config;
+        meteorite_data_set_custom_config(
+            cfg->os_mode,
+            cfg->cpi_value,
+            cfg->scroll_layer_1,
+            cfg->scroll_layer_2,
+            cfg->scroll_div_value
+        );
+        break;
+    }
+    case ZMK_STATUS_ADV_V2_FRAME_LAYERS_A:
+    case ZMK_STATUS_ADV_V2_FRAME_LAYERS_B: {
+        const struct zmk_status_adv_v2_layers *lay = &frame->layers;
+        uint8_t group = (frame_id == ZMK_STATUS_ADV_V2_FRAME_LAYERS_A) ? 0 : 1;
+        uint8_t base  = group * ZMK_STATUS_ADV_V2_LAYERS_PER_FRAME;
+
+        uint8_t total = lay->layer_count_total;
+        if (total > METEORITE_MAX_LAYERS) total = METEORITE_MAX_LAYERS;
+        v2_state.layer_count = total;
+        v2_state.layers_seen = true;
+
+        for (uint8_t i = 0; i < ZMK_STATUS_ADV_V2_LAYERS_PER_FRAME; i++) {
+            uint8_t layer = base + i;
+            if (layer >= METEORITE_MAX_LAYERS) break;
+            memset(v2_state.names[layer], 0,
+                   METEORITE_LAYER_NAME_LEN);
+            memcpy(v2_state.names[layer], lay->names[i],
+                   ZMK_STATUS_ADV_V2_LAYER_NAME_LEN);
+            /* Already 0 from memset; ZMK_STATUS_ADV_V2_LAYER_NAME_LEN
+             * is 4 and METEORITE_LAYER_NAME_LEN is 5, so byte 4 is
+             * the NUL terminator. */
+        }
+
+        meteorite_data_set_layer_list(v2_state.layer_count, v2_state.names);
+        break;
+    }
+    default:
+        LOG_DBG("v2 unknown frame_id %u", (unsigned)frame_id);
+        break;
+    }
 }
 #endif
 
@@ -144,9 +177,12 @@ static void refresh_tick(lv_timer_t *t) {
     }
 
 #if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
-    struct zmk_status_adv_v2_data v2;
-    if (scanner_get_pending_v2(&v2)) {
-        apply_v2_to_data(&v2);
+    /* Drain ALL queued v2 frames this tick — each frame is a different
+     * slice (config / layers A / layers B) and dropping any would leave
+     * the snapshot partially stale. */
+    union zmk_status_adv_v2_frame v2;
+    while (scanner_pop_pending_v2(&v2)) {
+        apply_v2_frame(&v2);
     }
 #endif
 

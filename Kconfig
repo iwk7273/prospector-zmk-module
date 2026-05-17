@@ -22,28 +22,45 @@ config ZMK_STATUS_ADVERTISEMENT
       Uses legacy advertising API - no BT_EXT_ADV needed.
 
 config PROSPECTOR_STATUS_ADV_V2_EXT
-    bool "Enable v2 Extended Advertising (Phase 2)"
+    bool "Enable v2 multi-frame status advertising (Phase 2)"
     default n
-    depends on BT_EXT_ADV
     help
-      Enables the Phase 2 v2 Extended Advertising protocol on either
+      Enables the Phase 2 v2 status advertisement protocol on either
       side of the link:
 
-        - On a keyboard (CONFIG_ZMK_STATUS_ADVERTISEMENT=y), broadcasts a
-          second BLE 5.0 ext-adv set carrying the full layer name list
-          and keyboard-specific custom config (OS mode, CPI, scroll
-          layers).
+        - On a keyboard (CONFIG_ZMK_STATUS_ADVERTISEMENT=y), splices
+          v2 frames into the existing legacy adv work cycle at a slow
+          rotating cadence (about 10% of ticks). v2 carries the layer
+          name list and keyboard-specific custom config (OS mode, CPI,
+          scroll layers).
         - On a scanner (CONFIG_PROSPECTOR_MODE_SCANNER=y), parses the
-          same packet and dispatches it to the display via the v2 ring
-          buffer.
+          v2 frames and reassembles them via the meteorite shield's
+          frame-state machine for the display.
 
-      v2 is independent of and backward-compatible with the v1 legacy
-      advertisement. Service UUID is bumped to 0xABCE (vs v1 0xABCD)
-      and the 4-byte keyboard_id is shared so scanners can correlate
-      both streams to the same physical keyboard.
+      v2 is delivered as 3 fixed 26-byte legacy ADV frames distinguished
+      from v1 by service UUID 0xABCE (vs v1 0xABCD). The 4-byte
+      keyboard_id is shared with v1 so scanners can correlate the two
+      streams to the same physical keyboard. Old v1-only scanners
+      simply ignore packets with the new UUID.
 
-      TX refresh cadence is ~1Hz plus on-change notifications — battery
-      impact is minimal.
+      Does NOT enable CONFIG_BT_EXT_ADV — that flag was found to be
+      incompatible with prospector's v1 piggyback path on the upstream
+      Zephyr/ZMK fork. v2 reuses the v1 transport instead.
+
+config PROSPECTOR_STATUS_ADV_V2_INTERVAL
+    int "v2 frame insertion period (in adv-work ticks)"
+    range 3 60
+    default 10
+    depends on PROSPECTOR_STATUS_ADV_V2_EXT && ZMK_STATUS_ADVERTISEMENT
+    help
+      One out of every N adv-work ticks transmits a v2 frame instead
+      of v1. Default 10 → ~10% of bandwidth goes to v2. v1 keyboard
+      state updates retain ~90% bandwidth.
+
+      A full v2 cycle (all 3 frames) takes N * 3 ticks. At the active
+      tick rate (~200ms), default settings give a ~6s v2 refresh; at
+      idle ticks (~30s) it's ~15 min, which matches v2's slow-moving
+      payload (custom config + layer names rarely change).
 
 config ZMK_STATUS_ADV_INTERVAL_MS
     int "Status advertisement interval in milliseconds"
