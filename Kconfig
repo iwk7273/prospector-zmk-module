@@ -24,19 +24,26 @@ config ZMK_STATUS_ADVERTISEMENT
 config PROSPECTOR_STATUS_ADV_V2_EXT
     bool "Enable v2 Extended Advertising (Phase 2)"
     default n
-    depends on ZMK_STATUS_ADVERTISEMENT && BT_EXT_ADV
+    depends on BT_EXT_ADV
     help
-      Broadcasts a second BLE 5.0 Extended Advertising set carrying the
-      full layer name list and keyboard-specific custom configuration
-      (OS mode, CPI, scroll layers). Independent of and backward-compatible
-      with the v1 legacy advertisement.
+      Enables the Phase 2 v2 Extended Advertising protocol on either
+      side of the link:
 
-      The v2 packet uses service UUID 0xABCE (distinct from v1 0xABCD)
-      and shares the same 4-byte keyboard_id so scanners can correlate
+        - On a keyboard (CONFIG_ZMK_STATUS_ADVERTISEMENT=y), broadcasts a
+          second BLE 5.0 ext-adv set carrying the full layer name list
+          and keyboard-specific custom config (OS mode, CPI, scroll
+          layers).
+        - On a scanner (CONFIG_PROSPECTOR_MODE_SCANNER=y), parses the
+          same packet and dispatches it to the display via the v2 ring
+          buffer.
+
+      v2 is independent of and backward-compatible with the v1 legacy
+      advertisement. Service UUID is bumped to 0xABCE (vs v1 0xABCD)
+      and the 4-byte keyboard_id is shared so scanners can correlate
       both streams to the same physical keyboard.
 
-      Refresh cadence is ~1Hz plus on-change notifications, much slower
-      than v1's fast keyboard-state stream. Battery impact is minimal.
+      TX refresh cadence is ~1Hz plus on-change notifications — battery
+      impact is minimal.
 
 config ZMK_STATUS_ADV_INTERVAL_MS
     int "Status advertisement interval in milliseconds"

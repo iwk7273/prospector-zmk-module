@@ -7,6 +7,8 @@
  * meteorite-config) by defining the same symbols without __weak.
  */
 
+#include <zephyr/toolchain.h>
+
 #include <zmk/prospector_v2_hooks.h>
 
 __weak uint8_t prospector_v2_get_os_mode(void)         { return 0xFF; }
