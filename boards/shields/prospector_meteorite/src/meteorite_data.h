@@ -92,6 +92,12 @@ struct meteorite_snapshot {
     uint8_t  scroll_layer_2;
     uint16_t scroll_div_value;
 
+    /* k_uptime_get_32() at the last v2 packet receipt. The renderer ages
+     * has_layer_list / has_custom_config against this so a v2 dropout
+     * (e.g. radio congestion while v1 keeps flowing) doesn't leave stale
+     * config on screen indefinitely. 0 = never received. */
+    uint32_t v2_updated_at_ms;
+
     /* === Host rate limits (USB CDC — Phase 3) === */
     struct meteorite_rate_limit rate[METEORITE_RATE_COUNT];
 };

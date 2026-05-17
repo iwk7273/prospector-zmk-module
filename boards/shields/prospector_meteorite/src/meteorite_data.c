@@ -81,6 +81,7 @@ void meteorite_data_set_layer_list(uint8_t count,
     for (uint8_t i = count; i < METEORITE_MAX_LAYERS; i++) {
         store.layer_names[i][0] = '\0';
     }
+    store.v2_updated_at_ms = k_uptime_get_32();
     k_spin_unlock(&store_lock, key);
 }
 
@@ -96,6 +97,7 @@ void meteorite_data_set_custom_config(uint8_t os_mode,
     store.scroll_layer_1 = scroll_layer_1;
     store.scroll_layer_2 = scroll_layer_2;
     store.scroll_div_value = scroll_div_value;
+    store.v2_updated_at_ms = k_uptime_get_32();
     k_spin_unlock(&store_lock, key);
 }
 
@@ -119,5 +121,6 @@ void meteorite_data_clear_keyboard(void) {
     store.has_keyboard = false;
     store.has_layer_list = false;
     store.has_custom_config = false;
+    store.v2_updated_at_ms = 0;
     k_spin_unlock(&store_lock, key);
 }

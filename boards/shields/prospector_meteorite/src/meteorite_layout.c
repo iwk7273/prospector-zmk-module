@@ -37,6 +37,10 @@ LOG_MODULE_REGISTER(meteorite_layout, CONFIG_ZMK_LOG_LEVEL);
 #define RATE_Y    148
 #define RATE_H    92
 
+/* v2 ext-adv fields go stale 30s after the last received packet, even if
+ * the v1 stream is still flowing. Mirrors the rate-limit stale window. */
+#define V2_STALE_MS  30000u
+
 /* ========== Colors (single palette for Phase 1) ========== */
 
 #define COL_BG          lv_color_black()
@@ -287,6 +291,11 @@ void meteorite_layout_refresh(void) {
     meteorite_data_snapshot(&s);
 
     char buf[32];
+    uint32_t now_ms = k_uptime_get_32();
+    bool v2_stale = (s.v2_updated_at_ms == 0) ||
+                    ((now_ms - s.v2_updated_at_ms) > V2_STALE_MS);
+    bool layer_list_live   = s.has_layer_list   && !v2_stale;
+    bool custom_config_live = s.has_custom_config && !v2_stale;
 
     /* ===== Header ===== */
     if (lbl_kb_name) {
@@ -325,7 +334,7 @@ void meteorite_layout_refresh(void) {
         if (s.has_keyboard) {
             /* Prefer the full layer-list name if available, otherwise the
              * 4-char dynamic name from the v1 ADV. */
-            if (s.has_layer_list && s.active_layer < s.layer_count &&
+            if (layer_list_live && s.active_layer < s.layer_count &&
                 s.layer_names[s.active_layer][0] != '\0') {
                 memcpy(name, s.layer_names[s.active_layer], sizeof(name));
             } else if (s.active_layer_name[0] != '\0') {
@@ -343,7 +352,7 @@ void meteorite_layout_refresh(void) {
         /* List up to 4 non-active layers in a single line. */
         char sub[80] = "";
         size_t off = 0;
-        if (s.has_layer_list) {
+        if (layer_list_live) {
             int shown = 0;
             for (uint8_t i = 0; i < s.layer_count && shown < 4; i++) {
                 if (i == s.active_layer) continue;
@@ -365,12 +374,12 @@ void meteorite_layout_refresh(void) {
     /* ===== Config ===== */
     if (lbl_os) {
         lv_label_set_text(lbl_os,
-            s.has_custom_config ? os_mode_text(s.os_mode) : "OS --");
+            custom_config_live ? os_mode_text(s.os_mode) : "OS --");
         lv_obj_set_style_text_color(lbl_os,
-            s.has_custom_config ? COL_FG : COL_DIM, 0);
+            custom_config_live ? COL_FG : COL_DIM, 0);
     }
     if (lbl_cpi) {
-        if (s.has_custom_config && s.cpi_value > 0) {
+        if (custom_config_live && s.cpi_value > 0) {
             snprintf(buf, sizeof(buf), "CPI %u", (unsigned)s.cpi_value);
             lv_label_set_text(lbl_cpi, buf);
             lv_obj_set_style_text_color(lbl_cpi, COL_FG, 0);
@@ -380,7 +389,7 @@ void meteorite_layout_refresh(void) {
         }
     }
     if (lbl_scrl) {
-        if (s.has_custom_config && s.scroll_layer_1 != 0xFF) {
+        if (custom_config_live && s.scroll_layer_1 != 0xFF) {
             snprintf(buf, sizeof(buf), "SCRL L%u",
                      (unsigned)s.scroll_layer_1);
             lv_label_set_text(lbl_scrl, buf);
@@ -407,7 +416,6 @@ void meteorite_layout_refresh(void) {
     }
 
     /* ===== Rate limits ===== */
-    uint32_t now_ms = k_uptime_get_32();
     for (int src = 0; src < METEORITE_RATE_COUNT; src++) {
         const struct meteorite_rate_limit *r = &s.rate[src];
         bool stale = !r->valid ||
