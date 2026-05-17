@@ -15,6 +15,9 @@ if(CONFIG_SHIELD_PROSPECTOR_METEORITE)
         src/meteorite_data.c
         src/display_settings.c
         src/brightness_control.c
+        # Phase 3a — host PC rate-limit ingress over zephyr,console CDC ACM.
+        # SYS_INIT auto-registers; no call site needed.
+        src/host_rate_rx.c
     )
 
     # BLE scanner data plumbing (ring buffer + keyboard table + pending data)
