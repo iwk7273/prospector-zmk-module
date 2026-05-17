@@ -65,8 +65,7 @@ static lv_obj_t *lbl_rssi_dbm     = NULL;
 static lv_obj_t *lbl_battery_pct  = NULL;
 
 /* Layer zone */
-static lv_obj_t *lbl_layer_main   = NULL;  /* "L0 BASE" */
-static lv_obj_t *lbl_layer_sub    = NULL;  /* "L2 NUM   L4 CFG" */
+static lv_obj_t *lbl_layer_main   = NULL;  /* "L0 BASE" — sublayer list removed per UX request */
 
 /* Config zone */
 static lv_obj_t *lbl_os           = NULL;
@@ -127,9 +126,9 @@ static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
 
 static const char *os_mode_text(uint8_t os_mode) {
     switch (os_mode) {
-    case METEORITE_OS_WIN: return "OS WIN";
-    case METEORITE_OS_MAC: return "OS MAC";
-    default:               return "OS --";
+    case METEORITE_OS_WIN: return "WIN";
+    case METEORITE_OS_MAC: return "MAC";
+    default:               return "--";
     }
 }
 
@@ -158,8 +157,19 @@ static void build_header(lv_obj_t *p) {
     lbl_kb_name = make_label(p, 12, HDR_Y + 10,
                              &lv_font_montserrat_16, COL_FG, "----");
 
+    /* dBm number sits left of the bar (was below — invisible because it
+     * collided with the bar and the row's vertical bounds). Right-aligned
+     * so the trailing digits stay flush against the bar. */
+    lbl_rssi_dbm = lv_label_create(p);
+    lv_obj_set_pos(lbl_rssi_dbm, 132, HDR_Y + 11);
+    lv_obj_set_size(lbl_rssi_dbm, 44, 14);
+    lv_obj_set_style_text_font(lbl_rssi_dbm, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(lbl_rssi_dbm, COL_DIM, 0);
+    lv_obj_set_style_text_align(lbl_rssi_dbm, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(lbl_rssi_dbm, "-- dB");
+
     bar_rssi = lv_bar_create(p);
-    lv_obj_set_pos(bar_rssi, 184, HDR_Y + 11);
+    lv_obj_set_pos(bar_rssi, 184, HDR_Y + 14);
     lv_obj_set_size(bar_rssi, 34, 8);
     lv_bar_set_range(bar_rssi, 0, 5);
     lv_bar_set_value(bar_rssi, 0, LV_ANIM_OFF);
@@ -168,35 +178,19 @@ static void build_header(lv_obj_t *p) {
     lv_obj_set_style_bg_color(bar_rssi, COL_FG, LV_PART_INDICATOR);
     lv_obj_set_style_bg_opa(bar_rssi, LV_OPA_COVER, LV_PART_INDICATOR);
 
-    lbl_rssi_dbm = make_label(p, 184, HDR_Y + 20,
-                              &lv_font_montserrat_12, COL_DIM, "-- dBm");
-
     lbl_battery_pct = make_label(p, 232, HDR_Y + 10,
                                  &lv_font_montserrat_16, COL_FG, "--%");
 }
 
 static void build_layer(lv_obj_t *p) {
-    /* Big "L0 BASE" line, centered horizontally */
+    /* Big "L0 BASE" line, vertically centered in the layer zone. */
     lbl_layer_main = lv_label_create(p);
     lv_obj_set_style_text_font(lbl_layer_main, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_layer_main, COL_FG, 0);
     lv_label_set_text(lbl_layer_main, "L- ----");
-    lv_obj_align(lbl_layer_main, LV_ALIGN_TOP_MID, 0, LAYER_Y + 14);
-
-    /* Separator */
-    lv_obj_t *sep = lv_obj_create(p);
-    lv_obj_remove_style_all(sep);
-    lv_obj_set_size(sep, 200, 1);
-    lv_obj_align(sep, LV_ALIGN_TOP_MID, 0, LAYER_Y + 56);
-    lv_obj_set_style_bg_color(sep, COL_SEP, 0);
-    lv_obj_set_style_bg_opa(sep, LV_OPA_COVER, 0);
-
-    /* Sub-layer list */
-    lbl_layer_sub = lv_label_create(p);
-    lv_obj_set_style_text_font(lbl_layer_sub, &lv_font_montserrat_14, 0);
-    lv_obj_set_style_text_color(lbl_layer_sub, COL_DIM, 0);
-    lv_label_set_text(lbl_layer_sub, "");
-    lv_obj_align(lbl_layer_sub, LV_ALIGN_TOP_MID, 0, LAYER_Y + 62);
+    /* Center the label in the layer zone: LAYER_H=84, font height ~36,
+     * so a +24 offset from LAYER_Y gives reasonable vertical centering. */
+    lv_obj_align(lbl_layer_main, LV_ALIGN_TOP_MID, 0, LAYER_Y + 24);
 }
 
 static void build_config(lv_obj_t *p) {
@@ -275,7 +269,6 @@ void meteorite_layout_destroy(void) {
     lbl_rssi_dbm     = NULL;
     lbl_battery_pct  = NULL;
     lbl_layer_main   = NULL;
-    lbl_layer_sub    = NULL;
     lbl_os           = NULL;
     lbl_cpi          = NULL;
     lbl_scrl         = NULL;
@@ -309,11 +302,12 @@ void meteorite_layout_refresh(void) {
             lv_obj_set_style_bg_color(bar_rssi,
                 bars >= 3 ? COL_GOOD : bars >= 2 ? COL_WARN : COL_BAD,
                 LV_PART_INDICATOR);
-            snprintf(buf, sizeof(buf), "%d dBm", (int)s.rssi_dbm);
+            /* "dB" instead of "dBm" so "-127 dB" still fits the 44px slot. */
+            snprintf(buf, sizeof(buf), "%d dB", (int)s.rssi_dbm);
             lv_label_set_text(lbl_rssi_dbm, buf);
         } else {
             lv_bar_set_value(bar_rssi, 0, LV_ANIM_OFF);
-            lv_label_set_text(lbl_rssi_dbm, "-- dBm");
+            lv_label_set_text(lbl_rssi_dbm, "-- dB");
         }
     }
     if (lbl_battery_pct) {
@@ -347,28 +341,6 @@ void meteorite_layout_refresh(void) {
             snprintf(buf, sizeof(buf), "L- ----");
         }
         lv_label_set_text(lbl_layer_main, buf);
-    }
-    if (lbl_layer_sub) {
-        /* List up to 4 non-active layers in a single line. */
-        char sub[80] = "";
-        size_t off = 0;
-        if (layer_list_live) {
-            int shown = 0;
-            for (uint8_t i = 0; i < s.layer_count && shown < 4; i++) {
-                if (i == s.active_layer) continue;
-                if (s.layer_names[i][0] == '\0') continue;
-                int n = snprintf(sub + off, sizeof(sub) - off,
-                                 "%sL%u %.*s",
-                                 shown == 0 ? "" : "   ",
-                                 (unsigned)i,
-                                 METEORITE_LAYER_NAME_LEN - 1,
-                                 s.layer_names[i]);
-                if (n < 0 || (size_t)n >= sizeof(sub) - off) break;
-                off += n;
-                shown++;
-            }
-        }
-        lv_label_set_text(lbl_layer_sub, sub);
     }
 
     /* ===== Config ===== */
