@@ -318,6 +318,7 @@ static const lv_image_dsc_t rate_icon_codex = {
 struct rate_row_widgets {
     lv_obj_t *bar_pace_tick;
     lv_obj_t *bar;
+    lv_obj_t *label_prefix;  /* "H:" / "W:" — set once at build, never changes */
     lv_obj_t *label_pct;
     lv_obj_t *label_eta;
 };
@@ -496,14 +497,14 @@ static void build_layer(lv_obj_t *p) {
                               &lv_font_montserrat_14, COL_DIM, "USB");
 }
 
-/* Bar geometry shared by build + refresh. Narrower (100 vs the previous
- * 110) so the 32x32 source icon to the left has more room without
- * crowding. label_pct gets the freed pixels too — needs to fit
- * "H:100%" / "W:100%" now. */
-#define RATE_BAR_X      70
-#define RATE_BAR_W      100
-#define RATE_LBL_PCT_X  174
-#define RATE_LBL_ETA_X  220
+/* Bar geometry shared by build + refresh. The H:/W: prefix is its own
+ * label slotted between the source icon and the main bar, so label_pct
+ * only carries the number ("23%" / "--%") — no more "H:" embedded. */
+#define RATE_LBL_PREFIX_X  54
+#define RATE_BAR_X         74
+#define RATE_BAR_W         100
+#define RATE_LBL_PCT_X     178
+#define RATE_LBL_ETA_X     222
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     struct rate_row_widgets *w = &rate_rows[src][row];
@@ -534,6 +535,9 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     lv_obj_set_style_radius(w->bar_pace_tick, 1, 0);
     lv_obj_add_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
 
+    w->label_prefix = make_label(p, RATE_LBL_PREFIX_X, y + 2,
+                                 &lv_font_montserrat_14, COL_DIM,
+                                 row == 0 ? "H:" : "W:");
     w->label_pct = make_label(p, RATE_LBL_PCT_X, y + 2,
                               &lv_font_montserrat_14, COL_DIM, "--%");
     w->label_eta = make_label(p, RATE_LBL_ETA_X, y + 2,
@@ -757,18 +761,18 @@ void meteorite_layout_refresh(void) {
             uint32_t remaining = (sec_at_capture > elapsed)
                 ? sec_at_capture - elapsed : 0;
 
-            /* Row 0 = 5-hour window, row 1 = weekly. Prefix "H:" / "W:"
-             * on the % label so a glance distinguishes the two without
-             * counting bars from the top. */
-            char prefix = (row == 0) ? 'H' : 'W';
+            /* Row 0 = 5-hour window, row 1 = weekly. The "H:" / "W:"
+             * tag is its own label (label_prefix, set once at build),
+             * slotted between the source icon and the main bar so the
+             * row reads icon | H: | ████ | 23% | 1h23 left-to-right. */
             if (stale) {
                 lv_bar_set_value(w->bar, 0, LV_ANIM_OFF);
                 lv_obj_set_style_bg_color(w->bar, COL_INACTIVE,
                                           LV_PART_INDICATOR);
                 lv_obj_add_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
-                snprintf(buf, sizeof(buf), "%c:--%%", prefix);
-                lv_label_set_text(w->label_pct, buf);
+                lv_label_set_text(w->label_pct, "--%");
                 lv_label_set_text(w->label_eta, "--:--");
+                lv_obj_set_style_text_color(w->label_prefix, COL_DIM, 0);
                 lv_obj_set_style_text_color(w->label_pct, COL_DIM, 0);
                 lv_obj_set_style_text_color(w->label_eta, COL_DIM, 0);
             } else {
@@ -784,12 +788,15 @@ void meteorite_layout_refresh(void) {
                            - PACE_TICK_W / 2;
                 lv_obj_set_x(w->bar_pace_tick, tick_x);
                 lv_obj_clear_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
-                snprintf(buf, sizeof(buf), "%c:%u%%", prefix, (unsigned)pct);
+                snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
                 lv_label_set_text(w->label_pct, buf);
                 fmt_eta(buf, sizeof(buf), remaining);
                 lv_label_set_text(w->label_eta, buf);
+                lv_obj_set_style_text_color(w->label_prefix, COL_FG, 0);
                 lv_obj_set_style_text_color(w->label_pct, COL_FG, 0);
-                lv_obj_set_style_text_color(w->label_eta, COL_DIM, 0);
+                /* Reset-time (ETA) was COL_DIM — bumped to COL_FG so a
+                 * glance picks up when each window flips. */
+                lv_obj_set_style_text_color(w->label_eta, COL_FG, 0);
             }
         }
     }
