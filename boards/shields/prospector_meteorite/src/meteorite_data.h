@@ -8,20 +8,28 @@
  * data sources feed into this store, and the layout pulls a consistent
  * snapshot from it on every render tick.
  *
- *   Phase 1 (BLE ADV v1, currently shipping protocol):
+ *   BLE ADV v1 (legacy 26-byte, service UUID 0xABCD; receiver:
+ *               scanner_stub.c -> bootstrap.c::apply_pending_to_data):
  *     - keyboard name, central + peripheral battery, active layer index,
  *       4-char active layer name, modifier flags, connection pills, RSSI.
  *
- *   Phase 2 (BLE ADV v2 extension — not yet implemented):
+ *   BLE ADV v2 multi-frame (service UUID 0xABCE; receiver:
+ *               scanner_stub.c::scanner_pop_pending_v2 ->
+ *               bootstrap.c::apply_v2_frame):
  *     - full layer name list (count + names[10][5])
  *     - Meteorite custom config (OS mode, CPI, scroll layer indices)
+ *     v2 fields are NOT aged out independently — the keyboard's idle-mode
+ *     v2 cadence is too slow (~5 min between frames) for any short
+ *     threshold to work. has_layer_list / has_custom_config are cleared
+ *     atomically with has_keyboard on v1 timeout (~8 min default).
  *
- *   Phase 3 (host PC USB CDC line protocol — not yet implemented):
+ *   Host PC USB CDC line protocol (host_rate_rx.c, shares zephyr,console
+ *               CDC ACM with logging):
  *     - Codex / Claude rate-limit window usage and reset epochs.
  *
- * Setters are called from the LVGL timer / scanner work handler context.
- * The layout reads via meteorite_data_snapshot() which copies the whole
- * struct under a critical section.
+ * Setters are called from the LVGL timer / scanner work handler / UART IRQ
+ * contexts. The layout reads via meteorite_data_snapshot() which copies
+ * the whole struct under a spinlock.
  */
 
 #pragma once
@@ -79,12 +87,12 @@ struct meteorite_snapshot {
     uint8_t  active_layer;
     char     active_layer_name[METEORITE_LAYER_NAME_LEN];
 
-    /* === Layer name list (ADV v2 — Phase 2) === */
+    /* === Layer name list (ADV v2) === */
     bool     has_layer_list;
     uint8_t  layer_count;
     char     layer_names[METEORITE_MAX_LAYERS][METEORITE_LAYER_NAME_LEN];
 
-    /* === Meteorite custom config (ADV v2 — Phase 2) === */
+    /* === Meteorite custom config (ADV v2) === */
     bool     has_custom_config;
     uint8_t  os_mode;                    /* enum meteorite_os_mode */
     uint16_t cpi_value;                  /* actual DPI (e.g. 800) */
@@ -92,13 +100,7 @@ struct meteorite_snapshot {
     uint8_t  scroll_layer_2;
     uint16_t scroll_div_value;
 
-    /* k_uptime_get_32() at the last v2 packet receipt. The renderer ages
-     * has_layer_list / has_custom_config against this so a v2 dropout
-     * (e.g. radio congestion while v1 keeps flowing) doesn't leave stale
-     * config on screen indefinitely. 0 = never received. */
-    uint32_t v2_updated_at_ms;
-
-    /* === Host rate limits (USB CDC — Phase 3) === */
+    /* === Host rate limits (USB CDC) === */
     struct meteorite_rate_limit rate[METEORITE_RATE_COUNT];
 };
 
@@ -121,7 +123,7 @@ void meteorite_data_set_keyboard_v1(
     uint8_t ble_profile_slot
 );
 
-/* Setter — called from BLE ADV v2 receive path (Phase 2). Stubbed until then. */
+/* Setter — called from BLE ADV v2 receive path. */
 void meteorite_data_set_layer_list(uint8_t count,
                                    const char names[][METEORITE_LAYER_NAME_LEN]);
 
@@ -131,7 +133,7 @@ void meteorite_data_set_custom_config(uint8_t os_mode,
                                       uint8_t scroll_layer_2,
                                       uint16_t scroll_div_value);
 
-/* Setter — called from host CDC receive path (Phase 3). Stubbed until then. */
+/* Setter — called from host CDC receive path (host_rate_rx.c, UART IRQ). */
 void meteorite_data_set_rate_limit(enum meteorite_rate_source src,
                                    uint8_t pct_5h, uint8_t pct_weekly,
                                    uint32_t sec_until_reset_5h,

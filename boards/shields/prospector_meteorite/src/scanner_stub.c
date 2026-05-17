@@ -12,6 +12,8 @@
  * The ring buffer eliminates mutex on the BT RX hot path.
  */
 
+#include "scanner_stub.h"
+
 #include <zephyr/kernel.h>
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
@@ -41,7 +43,7 @@ extern int zmk_status_scanner_start(void);
 /* Uses struct zmk_keyboard_status from zmk/status_scanner.h as single source of truth */
 
 #define MAX_KEYBOARDS ZMK_STATUS_SCANNER_MAX_KEYBOARDS
-#define MAX_NAME_LEN 32
+#define MAX_NAME_LEN SCANNER_STUB_MAX_NAME_LEN
 
 static struct zmk_keyboard_status keyboards[MAX_KEYBOARDS];
 static int selected_keyboard = 0;
@@ -135,34 +137,8 @@ bool scanner_pop_pending_v2(union zmk_status_adv_v2_frame *out) {
 #endif /* CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT */
 
 /* ========== Pending Display Data (set by LVGL timer, read by LVGL timer) ========== */
-
-struct pending_display_data {
-    volatile bool update_pending;
-    volatile bool signal_update_pending;  /* Signal widget updates separately (1Hz) */
-    volatile bool no_keyboards;           /* True when all keyboards timed out */
-
-    char device_name[MAX_NAME_LEN];
-    char layer_name[4];
-    int layer;
-    int wpm;
-    bool usb_ready;
-    bool ble_connected;
-    bool ble_bonded;
-    int profile;
-    uint8_t modifiers;
-    int bat[4];
-    int8_t rssi;
-    float rate_hz;
-    int scanner_battery;
-    bool scanner_battery_pending;
-
-    /* Keyboard firmware version (decoded from version + profile_slot fields) */
-    uint8_t kb_version_major;
-    uint8_t kb_version_minor;
-    uint8_t kb_version_patch;
-    bool kb_version_dev;
-    bool kb_version_valid;       /* True after first keyboard data received */
-};
+/* struct pending_display_data lives in scanner_stub.h so producer (this
+ * file) and consumer (bootstrap.c) share one definition. */
 
 static struct pending_display_data pending_data = {0};
 

@@ -63,9 +63,13 @@ LOG_MODULE_REGISTER(meteorite_layout, CONFIG_ZMK_LOG_LEVEL);
 #define SIGNAL_BAR_W      3
 #define SIGNAL_BAR_GAP    2
 
-/* v2 ext-adv fields go stale 30s after the last received packet, even if
- * the v1 stream is still flowing. v2 cadence is ~1Hz so this is generous. */
-#define V2_STALE_MS  30000u
+/* v2 ext-adv fields are NOT aged out independently of v1: the keyboard's
+ * v2 cadence drops to ~1 frame per 5 min (per-frame_id ~15 min) once it
+ * goes idle (Kconfig PROSPECTOR_STATUS_ADV_V2_INTERVAL × idle tick rate),
+ * so any short staleness threshold would dim CPI/SCRL/OS the moment the
+ * user stops typing. Instead, has_custom_config / has_layer_list track
+ * "received at least once" and are cleared atomically with has_keyboard
+ * by meteorite_data_clear_keyboard() on v1 timeout (~8 min). */
 
 /* Rate-limit values arrive from the host PC daemon at a 5-minute cadence
  * (matching claude-usage-widget's polling interval). Hold them on screen
@@ -370,9 +374,15 @@ static lv_color_t battery_color(uint8_t pct) {
     return COL_GOOD;
 }
 
-/* Format remaining seconds into "Hh Mm" (<24h) or "Dd Hh" (>=24h). Both
- * branches use a space separator and unit suffixes so the format reads as
- * "duration" rather than "clock time" (avoids "4h:50m" → 4:50 AM misread). */
+/* Format remaining seconds into one of three duration shapes, picked so the
+ * largest non-zero unit always leads (no "0h 30m" / "0d 5h" noise):
+ *   >= 1d    "Xd Yh"   (weekly window: max "6d 23h")
+ *   >= 1h    "Xh Ym"   (max "23h 59m" — keep both branches space-separated
+ *                       so it reads as a duration not "4:50 AM" clock time)
+ *   <  1h    "Xm"      ("30m"; collapses the 0-hour case)
+ *   == 0     "--:--"   placeholder
+ * Trailing minute is %u (not %02u): "1h 5m" reads as a duration; "1h 05m"
+ * looks like clock time again. */
 static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
     if (remaining_s == 0) {
         snprintf(out, sz, "--:--");
@@ -382,10 +392,13 @@ static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
         uint32_t d = remaining_s / 86400u;
         uint32_t h = (remaining_s % 86400u) / 3600u;
         snprintf(out, sz, "%ud %uh", (unsigned)d, (unsigned)h);
-    } else {
+    } else if (remaining_s >= 3600u) {
         uint32_t h = remaining_s / 3600u;
         uint32_t m = (remaining_s % 3600u) / 60u;
-        snprintf(out, sz, "%uh %02um", (unsigned)h, (unsigned)m);
+        snprintf(out, sz, "%uh %um", (unsigned)h, (unsigned)m);
+    } else {
+        uint32_t m = remaining_s / 60u;
+        snprintf(out, sz, "%um", (unsigned)m);
     }
 }
 
@@ -396,8 +409,24 @@ static lv_obj_t *make_label(lv_obj_t *parent, int x, int y,
                             const char *initial) {
     lv_obj_t *l = lv_label_create(parent);
     lv_obj_set_pos(l, x, y);
-    if (font) lv_obj_set_style_text_font(l, font, 0);
+    lv_obj_set_style_text_font(l, font, 0);
     lv_obj_set_style_text_color(l, color, 0);
+    lv_label_set_text(l, initial);
+    return l;
+}
+
+/* Right-aligned numeric label used by the rate rows for pct ("23%") and
+ * ETA ("1h 23m"). Fixed-width slot keeps the trailing digit/unit stable
+ * as the value width changes. font 16 / COL_DIM until refresh() promotes
+ * it to COL_FG when fresh data arrives. */
+static lv_obj_t *make_rate_value_label(lv_obj_t *parent, int x, int y,
+                                       int w, const char *initial) {
+    lv_obj_t *l = lv_label_create(parent);
+    lv_obj_set_pos(l, x, y);
+    lv_obj_set_size(l, w, 18);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(l, COL_DIM, 0);
+    lv_obj_set_style_text_align(l, LV_TEXT_ALIGN_RIGHT, 0);
     lv_label_set_text(l, initial);
     return l;
 }
@@ -523,16 +552,18 @@ static void build_layer(lv_obj_t *p) {
  *
  * Pct/ETA are font_montserrat_16 (bumped from 14 for legibility), so they
  * occupy wider slots than before:
- *   pct  width 38 (font 16 "100%" worst case), right-aligned, ends at 216
- *   eta  width 60 (font 16 "30d 23h" worst case), right-aligned, ends at 278
- * Prefix stays font 14 — purely a label, not a value the user reads. */
+ *   pct  width 38 (font 16 "100%" worst case), right-aligned, ends at 208
+ *   eta  width 68 (font 16 "23h 59m" worst case for weekly < 1d;
+ *                  wider than "6d 23h" because 'm' is the widest glyph),
+ *                  right-aligned, ends at 280 (screen edge)
+ * Bar shrinks by 8px to free room for ETA. Prefix stays font 14. */
 #define RATE_LBL_PREFIX_X  58
 #define RATE_BAR_X         74
-#define RATE_BAR_W         100
-#define RATE_LBL_PCT_X     178
+#define RATE_BAR_W         92
+#define RATE_LBL_PCT_X     170
 #define RATE_LBL_PCT_W     38
-#define RATE_LBL_ETA_X     218
-#define RATE_LBL_ETA_W     60
+#define RATE_LBL_ETA_X     212
+#define RATE_LBL_ETA_W     68
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     struct rate_row_widgets *w = &rate_rows[src][row];
@@ -572,21 +603,10 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
      * ("5%" → "100%", "1h:23m" → "30d 23h"). Font 16 reads cleanly from a
      * typing-distance glance — the values are the primary information in
      * the rate zone. */
-    w->label_pct = lv_label_create(p);
-    lv_obj_set_pos(w->label_pct, RATE_LBL_PCT_X, y + 2);
-    lv_obj_set_size(w->label_pct, RATE_LBL_PCT_W, 18);
-    lv_obj_set_style_text_font(w->label_pct, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(w->label_pct, COL_DIM, 0);
-    lv_obj_set_style_text_align(w->label_pct, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(w->label_pct, "--%");
-
-    w->label_eta = lv_label_create(p);
-    lv_obj_set_pos(w->label_eta, RATE_LBL_ETA_X, y + 2);
-    lv_obj_set_size(w->label_eta, RATE_LBL_ETA_W, 18);
-    lv_obj_set_style_text_font(w->label_eta, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(w->label_eta, COL_DIM, 0);
-    lv_obj_set_style_text_align(w->label_eta, LV_TEXT_ALIGN_RIGHT, 0);
-    lv_label_set_text(w->label_eta, "--:--");
+    w->label_pct = make_rate_value_label(p, RATE_LBL_PCT_X, y + 2,
+                                         RATE_LBL_PCT_W, "--%");
+    w->label_eta = make_rate_value_label(p, RATE_LBL_ETA_X, y + 2,
+                                         RATE_LBL_ETA_W, "--:--");
 }
 
 /* Build the per-source icon spanning both rows of a source. The icon sits
@@ -672,10 +692,8 @@ void meteorite_layout_refresh(void) {
 
     char buf[32];
     uint32_t now_ms = k_uptime_get_32();
-    bool v2_stale = (s.v2_updated_at_ms == 0) ||
-                    ((now_ms - s.v2_updated_at_ms) > V2_STALE_MS);
-    bool layer_list_live   = s.has_layer_list   && !v2_stale;
-    bool custom_config_live = s.has_custom_config && !v2_stale;
+    bool layer_list_live    = s.has_layer_list;
+    bool custom_config_live = s.has_custom_config;
 
     /* ===== Header ===== */
     if (lbl_kb_name) {

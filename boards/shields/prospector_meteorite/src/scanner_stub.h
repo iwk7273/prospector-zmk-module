@@ -14,6 +14,52 @@
 #include <zmk/status_advertisement_v2.h>
 #endif
 
+/* Shared scanner-pending data — single source of truth so the producer
+ * (scanner_stub.c) and the consumer (bootstrap.c::refresh_tick) cannot
+ * drift. Previously mirrored by hand in two files. */
+#define SCANNER_STUB_MAX_NAME_LEN 32
+
+struct pending_display_data {
+    volatile bool update_pending;
+    volatile bool signal_update_pending;  /* Signal widget updates separately (1Hz) */
+    volatile bool no_keyboards;           /* True when all keyboards timed out */
+
+    char device_name[SCANNER_STUB_MAX_NAME_LEN];
+    char layer_name[4];                   /* NOT null-terminated */
+    int layer;
+    int wpm;
+    bool usb_ready;
+    bool ble_connected;
+    bool ble_bonded;
+    int profile;
+    uint8_t modifiers;
+    int bat[4];
+    int8_t rssi;
+    float rate_hz;
+    int scanner_battery;
+    bool scanner_battery_pending;
+
+    /* Keyboard firmware version (decoded from version + profile_slot fields) */
+    uint8_t kb_version_major;
+    uint8_t kb_version_minor;
+    uint8_t kb_version_patch;
+    bool kb_version_dev;
+    bool kb_version_valid;                /* True after first keyboard data received */
+};
+
+/**
+ * @brief Read & clear the latest pending display data
+ *
+ * Returns false if no update is queued. On success, copies pending_data
+ * into *out and clears the update_pending flag.
+ */
+bool scanner_get_pending_update(struct pending_display_data *out);
+
+/* Latest RSSI from the BT RX path; produced by scanner_process_incoming(),
+ * consumed by the LVGL refresh tick. Volatile because the writer is the
+ * 1Hz rate-calc block and the reader runs from a different context. */
+extern volatile int8_t scanner_signal_rssi;
+
 /**
  * @brief Send keyboard data received from BLE advertisement
  *

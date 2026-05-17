@@ -11,8 +11,8 @@
  *     pushes it into meteorite_data, and calls meteorite_layout_refresh().
  *
  * There is no swipe navigation, no settings UI, no multi-keyboard select.
- * Phase 2 / 3 transports add data via meteorite_data setters and do not need
- * to touch this file.
+ * The v2 ADV reassembly path (apply_v2_frame) lives here; the host CDC
+ * rate-limit ingress feeds meteorite_data directly from host_rate_rx.c.
  */
 
 #include <zephyr/kernel.h>
@@ -28,45 +28,12 @@
 
 #include "meteorite_layout.h"
 #include "meteorite_data.h"
-#include "scanner_stub.h"
+#include "scanner_stub.h"  /* struct pending_display_data + helpers */
 
 LOG_MODULE_REGISTER(meteorite_bootstrap, LOG_LEVEL_INF);
 
-/* ========== Mirror of scanner_stub.c::pending_display_data ==========
- * Kept in lock-step with the producer struct in scanner_stub.c. If fields
- * are added there, mirror them here. Same pattern as the original
- * custom_status_screen.c (the producer doesn't export the struct). */
-
-#define MAX_NAME_LEN 32
-struct pending_display_data {
-    volatile bool update_pending;
-    volatile bool signal_update_pending;
-    volatile bool no_keyboards;
-
-    char device_name[MAX_NAME_LEN];
-    char layer_name[4];           /* NOT null-terminated */
-    int layer;
-    int wpm;
-    bool usb_ready;
-    bool ble_connected;
-    bool ble_bonded;
-    int profile;
-    uint8_t modifiers;
-    int bat[4];
-    int8_t rssi;
-    float rate_hz;
-    int scanner_battery;
-    bool scanner_battery_pending;
-
-    uint8_t kb_version_major;
-    uint8_t kb_version_minor;
-    uint8_t kb_version_patch;
-    bool kb_version_dev;
-    bool kb_version_valid;
-};
-
-extern bool scanner_get_pending_update(struct pending_display_data *out);
-extern volatile int8_t scanner_signal_rssi;
+/* struct pending_display_data + scanner_get_pending_update() +
+ * scanner_signal_rssi all live in scanner_stub.h — single source of truth. */
 
 /* ========== Refresh tick ========== */
 
@@ -87,9 +54,11 @@ static void apply_pending_to_data(const struct pending_display_data *p) {
         periph[i] = (uint8_t)(p->bat[1 + i] & 0xFF);
     }
 
+    /* layer_name is 5 bytes, p->layer_name is 4 bytes (NOT null-terminated).
+     * The {0} initializer leaves byte[4] as the NUL terminator after the
+     * memcpy fills bytes[0..3]. */
     char layer_name[METEORITE_LAYER_NAME_LEN] = {0};
     memcpy(layer_name, p->layer_name, sizeof(p->layer_name));
-    layer_name[sizeof(p->layer_name)] = '\0';
 
     meteorite_data_set_keyboard_v1(
         p->device_name,

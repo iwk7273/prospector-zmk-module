@@ -5,19 +5,23 @@
 # with bootstrap.c + meteorite_layout.c + meteorite_data.c.
 
 if(CONFIG_SHIELD_PROSPECTOR_METEORITE)
-    # ----- Always required -----
-    target_sources(app PRIVATE src/backlight_init.c)
+    # ----- Always required (display-independent) -----
+    #   meteorite_data : shared snapshot store consumed by both the layout
+    #                    and the host rate ingress
+    #   host_rate_rx   : USB CDC line-protocol receiver (SYS_INIT auto-registers,
+    #                    no call site needed); has no display dependency
+    target_sources(app PRIVATE
+        src/backlight_init.c
+        src/meteorite_data.c
+        src/host_rate_rx.c
+    )
 
     # ----- Custom screen layer (Meteorite layout) -----
     target_sources_ifdef(CONFIG_ZMK_DISPLAY_STATUS_SCREEN_CUSTOM app PRIVATE
         src/bootstrap.c
         src/meteorite_layout.c
-        src/meteorite_data.c
         src/display_settings.c
         src/brightness_control.c
-        # Phase 3a — host PC rate-limit ingress over zephyr,console CDC ACM.
-        # SYS_INIT auto-registers; no call site needed.
-        src/host_rate_rx.c
     )
 
     # BLE scanner data plumbing (ring buffer + keyboard table + pending data)
