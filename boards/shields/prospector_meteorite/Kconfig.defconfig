@@ -46,8 +46,14 @@ endchoice
 config PROSPECTOR_MODE_SCANNER
     default y
 
+# Meteorite only ever shows a single keyboard, but PROSPECTOR_MAX_KEYBOARDS
+# (referenced unconditionally by zmk/status_scanner.h) requires
+# PROSPECTOR_MULTI_KEYBOARD=y. Keep multi=y and cap the table at 1.
 config PROSPECTOR_MULTI_KEYBOARD
-    default n
+    default y
+
+config PROSPECTOR_MAX_KEYBOARDS
+    default 1
 
 config PROSPECTOR_MAX_LAYERS
     default 10
