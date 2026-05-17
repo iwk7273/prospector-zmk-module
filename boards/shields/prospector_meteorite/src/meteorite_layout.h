@@ -9,12 +9,15 @@
  *
  * Zones:
  *   Header   (y=0..36)     keyboard name (left), RSSI dBm + 5-bar
- *                          phone-style signal icon, battery % (right)
- *   Layer    (y=36..124)   left panel: "Ln NAME" (font 24) + CPI/SCRL
+ *                          phone-style signal icon, battery % (right,
+ *                          right-aligned against the 268-px right margin)
+ *   Layer    (y=36..124)   left panel: "Ln NAME" (font 28) + CPI/SCRL
  *                          right panel: 24x24 Win/Mac OS icons +
- *                          BLE/USB pills (1-px COL_SEP divider)
+ *                          BLE/USB pills, both centered in the right
+ *                          panel (1-px COL_SEP divider)
  *   Rate     (y=124..240)  Codex / Claude 5h+weekly bars + pace tick
- *                          + H:/W: prefixed % + ETA; 32x32 source icons
+ *                          + H:/W: prefixed % + ETA (font 16,
+ *                          right-aligned); 32x32 source icons
  */
 
 #pragma once

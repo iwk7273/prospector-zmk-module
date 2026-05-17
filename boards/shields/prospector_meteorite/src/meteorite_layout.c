@@ -370,7 +370,9 @@ static lv_color_t battery_color(uint8_t pct) {
     return COL_GOOD;
 }
 
-/* Format remaining seconds into "Hh:Mm" (<24h) or "Dd Hh" (>=24h) */
+/* Format remaining seconds into "Hh Mm" (<24h) or "Dd Hh" (>=24h). Both
+ * branches use a space separator and unit suffixes so the format reads as
+ * "duration" rather than "clock time" (avoids "4h:50m" → 4:50 AM misread). */
 static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
     if (remaining_s == 0) {
         snprintf(out, sz, "--:--");
@@ -383,7 +385,7 @@ static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
     } else {
         uint32_t h = remaining_s / 3600u;
         uint32_t m = (remaining_s % 3600u) / 60u;
-        snprintf(out, sz, "%uh:%02um", (unsigned)h, (unsigned)m);
+        snprintf(out, sz, "%uh %02um", (unsigned)h, (unsigned)m);
     }
 }
 
@@ -445,18 +447,28 @@ static void build_header(lv_obj_t *p) {
         signal_bars[i] = b;
     }
 
-    lbl_battery_pct = make_label(p, 232, HDR_Y + 10,
-                                 &lv_font_montserrat_16, COL_FG, "--%");
+    /* Battery % right-aligned at the right edge so the trailing digit holds
+     * a stable position as the value moves between "5%" and "100%". Fixed
+     * width 36 = font 16 "100%" worst case; x=232 anchors the right edge at
+     * 268, mirroring the 12-px left margin used by the keyboard name. */
+    lbl_battery_pct = lv_label_create(p);
+    lv_obj_set_pos(lbl_battery_pct, 232, HDR_Y + 10);
+    lv_obj_set_size(lbl_battery_pct, 36, 18);
+    lv_obj_set_style_text_font(lbl_battery_pct, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(lbl_battery_pct, COL_FG, 0);
+    lv_obj_set_style_text_align(lbl_battery_pct, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(lbl_battery_pct, "--%");
 }
 
 static void build_layer(lv_obj_t *p) {
     /* "L0 BASE" — left-aligned in the layer zone's narrower left panel.
-     * Font_24 fits "L99 ABCD" (~140 px) comfortably in LAYER_LEFT_W=158. */
+     * Font_28 with the 6-char-max layer-name policy fits "L9 LOWER"
+     * (~144 px) inside LAYER_LEFT_W=158 with a 14 px right margin. */
     lbl_layer_main = lv_label_create(p);
-    lv_obj_set_style_text_font(lbl_layer_main, &lv_font_montserrat_24, 0);
+    lv_obj_set_style_text_font(lbl_layer_main, &lv_font_montserrat_28, 0);
     lv_obj_set_style_text_color(lbl_layer_main, COL_FG, 0);
     lv_label_set_text(lbl_layer_main, "L- ----");
-    lv_obj_set_pos(lbl_layer_main, 14, LAYER_Y + 8);
+    lv_obj_set_pos(lbl_layer_main, 14, LAYER_Y + 6);
 
     /* CPI + SCRL share a single row below the layer label.
      * "CPI 3200" ~64 px + gap + "SCRL L3" ~52 px fits the 158-px panel. */
@@ -475,36 +487,52 @@ static void build_layer(lv_obj_t *p) {
 
     /* ---- Right panel: 24x24 OS icons on top (bigger than the previous
      * 16x16 versions so the OS-mode indicator reads at a glance), with
-     * BLE + USB pills side-by-side below. */
-    int x_left = LAYER_RIGHT_X + 4;
+     * BLE + USB pills side-by-side below.
+     *
+     * Right panel spans LAYER_RIGHT_X..SCREEN_W (166..280, width 114).
+     * Both groups are independently centered in that span:
+     *   - OS icons: 24+12+24 = 60 px → start at 166+(114-60)/2 = 193
+     *     (mac at 193+36 = 229). Left/right margins both 27 px.
+     *   - BLE+USB:  ~"BLE 5" + 8 px + "USB" ≈ 82 px → start at 182
+     *     (USB at 182+52 = 234), leaving roughly symmetric slack. */
+    int x_os_win  = 193;
+    int x_ble     = 182;
 
     img_os_win = lv_image_create(p);
-    lv_obj_set_pos(img_os_win, x_left, LAYER_Y + 6);
+    lv_obj_set_pos(img_os_win, x_os_win, LAYER_Y + 6);
     lv_image_set_src(img_os_win, &os_icon_windows);
     lv_obj_set_style_image_recolor(img_os_win, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img_os_win, LV_OPA_COVER, 0);
 
     img_os_mac = lv_image_create(p);
-    lv_obj_set_pos(img_os_mac, x_left + 36, LAYER_Y + 6);
+    lv_obj_set_pos(img_os_mac, x_os_win + 36, LAYER_Y + 6);
     lv_image_set_src(img_os_mac, &os_icon_apple);
     lv_obj_set_style_image_recolor(img_os_mac, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img_os_mac, LV_OPA_COVER, 0);
 
     /* BLE / USB horizontal row, beneath the OS icons. */
-    lbl_ble_pill = make_label(p, x_left, LAYER_Y + 50,
+    lbl_ble_pill = make_label(p, x_ble, LAYER_Y + 50,
                               &lv_font_montserrat_14, COL_DIM, "BLE -");
-    lbl_usb_pill = make_label(p, x_left + 52, LAYER_Y + 50,
+    lbl_usb_pill = make_label(p, x_ble + 52, LAYER_Y + 50,
                               &lv_font_montserrat_14, COL_DIM, "USB");
 }
 
 /* Bar geometry shared by build + refresh. The H:/W: prefix is its own
  * label slotted between the source icon and the main bar, so label_pct
- * only carries the number ("23%" / "--%") — no more "H:" embedded. */
-#define RATE_LBL_PREFIX_X  54
+ * only carries the number ("23%" / "--%") — no more "H:" embedded.
+ *
+ * Pct/ETA are font_montserrat_16 (bumped from 14 for legibility), so they
+ * occupy wider slots than before:
+ *   pct  width 38 (font 16 "100%" worst case), right-aligned, ends at 216
+ *   eta  width 60 (font 16 "30d 23h" worst case), right-aligned, ends at 278
+ * Prefix stays font 14 — purely a label, not a value the user reads. */
+#define RATE_LBL_PREFIX_X  58
 #define RATE_BAR_X         74
 #define RATE_BAR_W         100
 #define RATE_LBL_PCT_X     178
-#define RATE_LBL_ETA_X     222
+#define RATE_LBL_PCT_W     38
+#define RATE_LBL_ETA_X     218
+#define RATE_LBL_ETA_W     60
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     struct rate_row_widgets *w = &rate_rows[src][row];
@@ -538,10 +566,27 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     w->label_prefix = make_label(p, RATE_LBL_PREFIX_X, y + 2,
                                  &lv_font_montserrat_14, COL_DIM,
                                  row == 0 ? "H:" : "W:");
-    w->label_pct = make_label(p, RATE_LBL_PCT_X, y + 2,
-                              &lv_font_montserrat_14, COL_DIM, "--%");
-    w->label_eta = make_label(p, RATE_LBL_ETA_X, y + 2,
-                              &lv_font_montserrat_14, COL_DIM, "--:--");
+
+    /* Pct and ETA are right-aligned within fixed-width slots so the trailing
+     * digit / unit holds a stable column position as content varies
+     * ("5%" → "100%", "1h:23m" → "30d 23h"). Font 16 reads cleanly from a
+     * typing-distance glance — the values are the primary information in
+     * the rate zone. */
+    w->label_pct = lv_label_create(p);
+    lv_obj_set_pos(w->label_pct, RATE_LBL_PCT_X, y + 2);
+    lv_obj_set_size(w->label_pct, RATE_LBL_PCT_W, 18);
+    lv_obj_set_style_text_font(w->label_pct, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(w->label_pct, COL_DIM, 0);
+    lv_obj_set_style_text_align(w->label_pct, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(w->label_pct, "--%");
+
+    w->label_eta = lv_label_create(p);
+    lv_obj_set_pos(w->label_eta, RATE_LBL_ETA_X, y + 2);
+    lv_obj_set_size(w->label_eta, RATE_LBL_ETA_W, 18);
+    lv_obj_set_style_text_font(w->label_eta, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(w->label_eta, COL_DIM, 0);
+    lv_obj_set_style_text_align(w->label_eta, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_label_set_text(w->label_eta, "--:--");
 }
 
 /* Build the per-source icon spanning both rows of a source. The icon sits
@@ -552,11 +597,13 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
 static void build_rate_icon(lv_obj_t *p, int src, int row0_y,
                             const lv_image_dsc_t *icon) {
     lv_obj_t *img = lv_image_create(p);
-    /* Row 0 bars occupy row0_y .. row0_y+14, row 1 occupies row0_y+22 ..
-     * row0_y+36. Midpoint ≈ row0_y+18; a 32-px icon centered on that
-     * lands top-edge at row0_y+2. x=20 gives a small left margin while
-     * leaving 18 px of gap to the main bar at RATE_BAR_X=70. */
-    lv_obj_set_pos(img, 20, row0_y + 2);
+    /* Row spacing was tightened (22 → 28 px) to absorb the 32 px of dead
+     * space that used to sit below the claude row. With the new spacing,
+     * row 0 bar centers at row0_y+9 and row 1 bar at row0_y+37 — midpoint
+     * row0_y+23. A 32 px icon centered on that midpoint lands its top at
+     * row0_y+7. x=20 keeps the small left margin; the prefix label at
+     * RATE_LBL_PREFIX_X=58 sits 6 px past the icon's right edge (52). */
+    lv_obj_set_pos(img, 20, row0_y + 7);
     lv_image_set_src(img, icon);
     lv_obj_set_style_image_recolor(img, COL_INACTIVE, 0);
     lv_obj_set_style_image_recolor_opa(img, LV_OPA_COVER, 0);
@@ -564,14 +611,19 @@ static void build_rate_icon(lv_obj_t *p, int src, int row0_y,
 }
 
 static void build_rate(lv_obj_t *p) {
-    /* Codex (rows at +0 and +22) */
+    /* Row offsets pulled wider (was 0/22/48/70 with 32 px of slack at the
+     * bottom). New layout 0/28/60/88 distributes that slack evenly between
+     * inter-row and inter-source gaps; last row's bar bottom now lands at
+     * RATE_Y+102 = 226, leaving a clean 14 px breathing margin to the
+     * screen's bottom edge at y=240. */
+    /* Codex (rows at +0 and +28) */
     build_rate_row(p, METEORITE_RATE_CODEX, 0, RATE_Y + 0);
-    build_rate_row(p, METEORITE_RATE_CODEX, 1, RATE_Y + 22);
+    build_rate_row(p, METEORITE_RATE_CODEX, 1, RATE_Y + 28);
     build_rate_icon(p, METEORITE_RATE_CODEX,  RATE_Y + 0,  &rate_icon_codex);
-    /* Claude (rows at +48 and +70) */
-    build_rate_row(p, METEORITE_RATE_CLAUDE, 0, RATE_Y + 48);
-    build_rate_row(p, METEORITE_RATE_CLAUDE, 1, RATE_Y + 70);
-    build_rate_icon(p, METEORITE_RATE_CLAUDE, RATE_Y + 48, &rate_icon_claude);
+    /* Claude (rows at +60 and +88) */
+    build_rate_row(p, METEORITE_RATE_CLAUDE, 0, RATE_Y + 60);
+    build_rate_row(p, METEORITE_RATE_CLAUDE, 1, RATE_Y + 88);
+    build_rate_icon(p, METEORITE_RATE_CLAUDE, RATE_Y + 60, &rate_icon_claude);
 }
 
 /* ========== Public API ========== */
