@@ -318,13 +318,25 @@ static const lv_image_dsc_t rate_icon_codex = {
 /* Rate zone (2 sources × 2 rows). The source label is now a 24x24 icon
  * spanning both rows (icon_src[src]) — no per-row src label anymore.
  * bar_pace_tick is a vertical line, sliding along the bar at the
- * elapsed-ratio position — a "you should be here" marker. */
+ * elapsed-ratio position — a "you should be here" marker.
+ *
+ * ETA is split into two right-aligned sub-labels so the unit suffixes
+ * line up vertically across rows in tabular fashion:
+ *   label_eta_a holds the leading unit ("23h" / "6d" / "") — its right
+ *               edge anchors the first column, so 'h' and 'd' across
+ *               rows land in the same x.
+ *   label_eta_b holds the trailing unit ("59m" / "23h" / "30m") — its
+ *               right edge anchors the second column, aligning 'm'/'h'.
+ * A single right-aligned label would only align the very last char, so
+ * "30m" and "23h 59m" would have 'm' aligned but 'h' (of 59m's "59") and
+ * '3' (of "23h") would not. */
 struct rate_row_widgets {
     lv_obj_t *bar_pace_tick;
     lv_obj_t *bar;
     lv_obj_t *label_prefix;  /* "H:" / "W:" — set once at build, never changes */
     lv_obj_t *label_pct;
-    lv_obj_t *label_eta;
+    lv_obj_t *label_eta_a;   /* first unit:  "23h" / "6d"  / "" */
+    lv_obj_t *label_eta_b;   /* second unit: "59m" / "23h" / "30m" / "--" */
 };
 static struct rate_row_widgets rate_rows[METEORITE_RATE_COUNT][2];
 static lv_obj_t *icon_src[METEORITE_RATE_COUNT];
@@ -374,31 +386,37 @@ static lv_color_t battery_color(uint8_t pct) {
     return COL_GOOD;
 }
 
-/* Format remaining seconds into one of three duration shapes, picked so the
- * largest non-zero unit always leads (no "0h 30m" / "0d 5h" noise):
- *   >= 1d    "Xd Yh"   (weekly window: max "6d 23h")
- *   >= 1h    "Xh Ym"   (max "23h 59m" — keep both branches space-separated
- *                       so it reads as a duration not "4:50 AM" clock time)
- *   <  1h    "Xm"      ("30m"; collapses the 0-hour case)
- *   == 0     "--:--"   placeholder
+/* Format remaining seconds into two parts (leading-unit / trailing-unit),
+ * picked so the largest non-zero unit always leads (no "0h 30m" / "0d 5h"):
+ *   >= 1d    a="Xd"  b="Yh"     (weekly window: max "6d" / "23h")
+ *   >= 1h    a="Xh"  b="Ym"     (max "23h" / "59m")
+ *   <  1h    a=""    b="Xm"     ("30m"; collapses the 0-hour case)
+ *   == 0     a=""    b="--"     stale / no-data placeholder
+ * The split exists so two right-aligned LVGL slots can column-align the
+ * unit suffixes across rows ('h'/'d' in column A, 'm'/'h' in column B).
  * Trailing minute is %u (not %02u): "1h 5m" reads as a duration; "1h 05m"
  * looks like clock time again. */
-static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
+static void fmt_eta_parts(char *a, size_t asz, char *b, size_t bsz,
+                          uint32_t remaining_s) {
     if (remaining_s == 0) {
-        snprintf(out, sz, "--:--");
+        a[0] = '\0';
+        snprintf(b, bsz, "--");
         return;
     }
     if (remaining_s >= 86400u) {
         uint32_t d = remaining_s / 86400u;
         uint32_t h = (remaining_s % 86400u) / 3600u;
-        snprintf(out, sz, "%ud %uh", (unsigned)d, (unsigned)h);
+        snprintf(a, asz, "%ud", (unsigned)d);
+        snprintf(b, bsz, "%uh", (unsigned)h);
     } else if (remaining_s >= 3600u) {
         uint32_t h = remaining_s / 3600u;
         uint32_t m = (remaining_s % 3600u) / 60u;
-        snprintf(out, sz, "%uh %um", (unsigned)h, (unsigned)m);
+        snprintf(a, asz, "%uh", (unsigned)h);
+        snprintf(b, bsz, "%um", (unsigned)m);
     } else {
         uint32_t m = remaining_s / 60u;
-        snprintf(out, sz, "%um", (unsigned)m);
+        a[0] = '\0';
+        snprintf(b, bsz, "%um", (unsigned)m);
     }
 }
 
@@ -559,20 +577,26 @@ static void build_layer(lv_obj_t *p) {
  * label slotted between the source icon and the main bar, so label_pct
  * only carries the number ("23%" / "--%") — no more "H:" embedded.
  *
- * Pct/ETA are font_montserrat_16 (bumped from 14 for legibility), so they
- * occupy wider slots than before:
- *   pct  width 38 (font 16 "100%" worst case), right-aligned, ends at 208
- *   eta  width 68 (font 16 "23h 59m" worst case for weekly < 1d;
- *                  wider than "6d 23h" because 'm' is the widest glyph),
- *                  right-aligned, ends at 280 (screen edge)
- * Bar shrinks by 8px to free room for ETA. Prefix stays font 14. */
+ * Layout, left-to-right, font_montserrat_16 except prefix (14):
+ *   prefix at x=58           ("H:" / "W:", left-aligned, ~14 px)
+ *   bar    at x=74,  w=86    (right edge 160)
+ *   pct    at x=164, w=38    (right edge 202; "100%" worst case ~37 px)
+ *   eta_a  at x=204, w=28    (right edge 232; "23h"  worst case ~28 px)
+ *   eta_b  at x=236, w=40    (right edge 276; "59m"  worst case ~32 px,
+ *                             4 px margin to screen so the trailing 'm'
+ *                             never grazes the edge)
+ * Splitting ETA into two right-aligned slots tabulates the unit suffixes:
+ * 'h'/'d' always lands inside eta_a's right edge, 'm'/'h' inside eta_b's,
+ * so rows line up vertically regardless of which format each row is in. */
 #define RATE_LBL_PREFIX_X  58
 #define RATE_BAR_X         74
-#define RATE_BAR_W         92
-#define RATE_LBL_PCT_X     170
+#define RATE_BAR_W         86
+#define RATE_LBL_PCT_X     164
 #define RATE_LBL_PCT_W     38
-#define RATE_LBL_ETA_X     212
-#define RATE_LBL_ETA_W     68
+#define RATE_LBL_ETA_A_X   204
+#define RATE_LBL_ETA_A_W   28
+#define RATE_LBL_ETA_B_X   236
+#define RATE_LBL_ETA_B_W   40
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
     struct rate_row_widgets *w = &rate_rows[src][row];
@@ -607,15 +631,16 @@ static void build_rate_row(lv_obj_t *p, int src, int row, int y) {
                                  &lv_font_montserrat_14, COL_DIM,
                                  row == 0 ? "H:" : "W:");
 
-    /* Pct and ETA are right-aligned within fixed-width slots so the trailing
-     * digit / unit holds a stable column position as content varies
-     * ("5%" → "100%", "1h:23m" → "30d 23h"). Font 16 reads cleanly from a
-     * typing-distance glance — the values are the primary information in
-     * the rate zone. */
+    /* Pct and ETA pieces are right-aligned within fixed-width slots so
+     * the trailing digit / unit holds a stable column position as content
+     * varies. eta_a / eta_b are two slots so 'h'/'d' and 'm'/'h' line up
+     * tabularly across rows (see RATE_LBL_ETA_* comments above). */
     w->label_pct = make_rate_value_label(p, RATE_LBL_PCT_X, y + 2,
                                          RATE_LBL_PCT_W, "--%");
-    w->label_eta = make_rate_value_label(p, RATE_LBL_ETA_X, y + 2,
-                                         RATE_LBL_ETA_W, "--:--");
+    w->label_eta_a = make_rate_value_label(p, RATE_LBL_ETA_A_X, y + 2,
+                                           RATE_LBL_ETA_A_W, "");
+    w->label_eta_b = make_rate_value_label(p, RATE_LBL_ETA_B_X, y + 2,
+                                           RATE_LBL_ETA_B_W, "--");
 }
 
 /* Build the per-source icon spanning both rows of a source. The icon sits
@@ -850,10 +875,12 @@ void meteorite_layout_refresh(void) {
                                           LV_PART_INDICATOR);
                 lv_obj_add_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
                 lv_label_set_text(w->label_pct, "--%");
-                lv_label_set_text(w->label_eta, "--:--");
+                lv_label_set_text(w->label_eta_a, "");
+                lv_label_set_text(w->label_eta_b, "--");
                 lv_obj_set_style_text_color(w->label_prefix, COL_DIM, 0);
-                lv_obj_set_style_text_color(w->label_pct, COL_DIM, 0);
-                lv_obj_set_style_text_color(w->label_eta, COL_DIM, 0);
+                lv_obj_set_style_text_color(w->label_pct,    COL_DIM, 0);
+                lv_obj_set_style_text_color(w->label_eta_a,  COL_DIM, 0);
+                lv_obj_set_style_text_color(w->label_eta_b,  COL_DIM, 0);
             } else {
                 uint8_t elapsed_pct =
                     elapsed_pct_from_remaining(remaining, total_window);
@@ -869,13 +896,17 @@ void meteorite_layout_refresh(void) {
                 lv_obj_clear_flag(w->bar_pace_tick, LV_OBJ_FLAG_HIDDEN);
                 snprintf(buf, sizeof(buf), "%u%%", (unsigned)pct);
                 lv_label_set_text(w->label_pct, buf);
-                fmt_eta(buf, sizeof(buf), remaining);
-                lv_label_set_text(w->label_eta, buf);
+                char eta_a[8], eta_b[8];
+                fmt_eta_parts(eta_a, sizeof(eta_a),
+                              eta_b, sizeof(eta_b), remaining);
+                lv_label_set_text(w->label_eta_a, eta_a);
+                lv_label_set_text(w->label_eta_b, eta_b);
                 lv_obj_set_style_text_color(w->label_prefix, COL_FG, 0);
-                lv_obj_set_style_text_color(w->label_pct, COL_FG, 0);
+                lv_obj_set_style_text_color(w->label_pct,    COL_FG, 0);
                 /* Reset-time (ETA) was COL_DIM — bumped to COL_FG so a
                  * glance picks up when each window flips. */
-                lv_obj_set_style_text_color(w->label_eta, COL_FG, 0);
+                lv_obj_set_style_text_color(w->label_eta_a,  COL_FG, 0);
+                lv_obj_set_style_text_color(w->label_eta_b,  COL_FG, 0);
             }
         }
     }
