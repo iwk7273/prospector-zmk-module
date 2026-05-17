@@ -24,6 +24,13 @@
 #include <zmk/status_scanner.h>
 #include <zmk/status_advertisement.h>
 
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+#include <zmk/status_advertisement_v2.h>
+/* Scanner shield (e.g. prospector_meteorite) provides the implementation. */
+extern int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+                                    int8_t rssi);
+#endif
+
 // Scanner stub functions for lock-free ring buffer push
 #include "../boards/shields/prospector_scanner/src/scanner_stub.h"
 
@@ -129,6 +136,26 @@ static void scan_callback(const bt_addr_le_t *addr, int8_t rssi, uint8_t type,
 
         /* Check for Prospector manufacturer data */
         if (ad_type == BT_DATA_MANUFACTURER_DATA) {
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+            /* v2 ext-adv packet: 0xABCE service UUID. Independent of v1 — gets
+             * its own dispatch path; never coexists with v1 in one packet. */
+            if (len >= sizeof(struct zmk_status_adv_v2_data) &&
+                buf_copy.data[0] == 0xFF && buf_copy.data[1] == 0xFF &&
+                buf_copy.data[2] == 0xAB && buf_copy.data[3] == 0xCE) {
+                const struct zmk_status_adv_v2_data *v2 =
+                    (const struct zmk_status_adv_v2_data *)buf_copy.data;
+                int v2_err = scanner_msg_send_v2_data(v2, rssi);
+                if (v2_err) {
+                    LOG_DBG("v2 ring full / drop: %d", v2_err);
+                } else {
+                    LOG_DBG("v2 packet dispatched (layers=%u os=%u cpi=%u)",
+                            v2->layer_count, v2->os_mode, v2->cpi_value);
+                }
+                /* Fall through — but the v1 check below will reject since
+                 * service_uuid[1] != 0xCD. */
+            }
+#endif
+
             if (len >= sizeof(struct zmk_status_adv_data)) {
                 const struct zmk_status_adv_data *data = (const struct zmk_status_adv_data *)buf_copy.data;
 

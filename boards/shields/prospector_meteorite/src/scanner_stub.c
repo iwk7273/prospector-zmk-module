@@ -18,6 +18,9 @@
 #include <zephyr/sys/atomic.h>
 #include <zmk/status_scanner.h>
 #include <zmk/status_advertisement.h>
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+#include <zmk/status_advertisement_v2.h>
+#endif
 #include <lvgl.h>
 
 #if IS_ENABLED(CONFIG_ZMK_BATTERY_REPORTING)
@@ -87,6 +90,54 @@ static bool incoming_pop(struct incoming_adv *out) {
     incoming_read_idx = (ri + 1) & (INCOMING_BUF_SIZE - 1);
     return true;
 }
+
+/* ========== v2 ext-adv ring buffer (Phase 2) ========== */
+
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+
+#define INCOMING_V2_BUF_SIZE 4  /* Must be power of 2; v2 cadence is ~1Hz */
+
+static struct zmk_status_adv_v2_data incoming_v2_buf[INCOMING_V2_BUF_SIZE];
+static volatile uint8_t incoming_v2_write_idx;
+static volatile uint8_t incoming_v2_read_idx;
+
+int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+                             int8_t rssi) {
+    ARG_UNUSED(rssi);  /* v2 doesn't use RSSI today — kept in API for symmetry */
+
+    uint8_t wi = incoming_v2_write_idx & (INCOMING_V2_BUF_SIZE - 1);
+    uint8_t next = (wi + 1) & (INCOMING_V2_BUF_SIZE - 1);
+    uint8_t ri = incoming_v2_read_idx & (INCOMING_V2_BUF_SIZE - 1);
+    if (next == ri) {
+        return -ENOMEM;
+    }
+    incoming_v2_buf[wi] = *data;
+    __DMB();
+    incoming_v2_write_idx = next;
+    return 0;
+}
+
+bool scanner_get_pending_v2(struct zmk_status_adv_v2_data *out) {
+    uint8_t ri = incoming_v2_read_idx & (INCOMING_V2_BUF_SIZE - 1);
+    uint8_t wi = incoming_v2_write_idx & (INCOMING_V2_BUF_SIZE - 1);
+    if (ri == wi) {
+        return false;
+    }
+
+    /* Collapse queued packets to the latest: v2 metadata is slow-moving,
+     * so intermediate samples offer no value. */
+    while (ri != wi) {
+        uint8_t next = (ri + 1) & (INCOMING_V2_BUF_SIZE - 1);
+        if (next == wi) break;
+        ri = next;
+    }
+    *out = incoming_v2_buf[ri];
+    __DMB();
+    incoming_v2_read_idx = (ri + 1) & (INCOMING_V2_BUF_SIZE - 1);
+    return true;
+}
+
+#endif /* CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT */
 
 /* ========== Pending Display Data (set by LVGL timer, read by LVGL timer) ========== */
 

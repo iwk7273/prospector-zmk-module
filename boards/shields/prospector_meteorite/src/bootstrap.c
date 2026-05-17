@@ -22,9 +22,13 @@
 
 #include <zmk/display/status_screen.h>
 #include <zmk/status_advertisement.h>
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+#include <zmk/status_advertisement_v2.h>
+#endif
 
 #include "meteorite_layout.h"
 #include "meteorite_data.h"
+#include "scanner_stub.h"
 
 LOG_MODULE_REGISTER(meteorite_bootstrap, LOG_LEVEL_INF);
 
@@ -101,6 +105,33 @@ static void apply_pending_to_data(const struct pending_display_data *p) {
     );
 }
 
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+static void apply_v2_to_data(const struct zmk_status_adv_v2_data *v2) {
+    /* Layer list: copy into a (count × 5) char[][] so meteorite_data can
+     * accept null-terminated entries. v2 packs 4 chars per slot without
+     * a terminator. */
+    char names[METEORITE_MAX_LAYERS][METEORITE_LAYER_NAME_LEN] = {{0}};
+    uint8_t count = v2->layer_count;
+    if (count > METEORITE_MAX_LAYERS) {
+        count = METEORITE_MAX_LAYERS;
+    }
+    for (uint8_t i = 0; i < count; i++) {
+        memcpy(names[i], v2->layer_names[i],
+               ZMK_STATUS_ADV_V2_LAYER_NAME_LEN);
+        names[i][METEORITE_LAYER_NAME_LEN - 1] = '\0';
+    }
+    meteorite_data_set_layer_list(count, names);
+
+    meteorite_data_set_custom_config(
+        v2->os_mode,
+        v2->cpi_value,
+        v2->scroll_layer_1,
+        v2->scroll_layer_2,
+        v2->scroll_div_value
+    );
+}
+#endif
+
 static void refresh_tick(lv_timer_t *t) {
     ARG_UNUSED(t);
 
@@ -111,6 +142,13 @@ static void refresh_tick(lv_timer_t *t) {
     if (scanner_get_pending_update(&p)) {
         apply_pending_to_data(&p);
     }
+
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+    struct zmk_status_adv_v2_data v2;
+    if (scanner_get_pending_v2(&v2)) {
+        apply_v2_to_data(&v2);
+    }
+#endif
 
     meteorite_layout_refresh();
 }

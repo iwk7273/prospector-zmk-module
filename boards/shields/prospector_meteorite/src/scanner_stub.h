@@ -10,6 +10,10 @@
 #include <zmk/status_scanner.h>
 #include <zmk/status_advertisement.h>
 
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+#include <zmk/status_advertisement_v2.h>
+#endif
+
 /**
  * @brief Send keyboard data received from BLE advertisement
  *
@@ -99,3 +103,31 @@ void scanner_set_selected_keyboard(int index);
  * @return 0 on success, negative error code on failure
  */
 int scanner_msg_send_display_refresh(void);
+
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+/**
+ * @brief Push a parsed v2 ext-adv packet into the v2 ring buffer
+ *
+ * Lock-free SPSC: called from BT RX thread by status_scanner.c after
+ * service-UUID validation. Drained by scanner_get_pending_v2() from
+ * the LVGL timer context.
+ *
+ * @param data v2 packet payload (caller-owned, copied internally)
+ * @param rssi Signal strength (reserved for future use)
+ * @return 0 on success, -ENOSPC if the v2 ring is full
+ */
+int scanner_msg_send_v2_data(const struct zmk_status_adv_v2_data *data,
+                             int8_t rssi);
+
+/**
+ * @brief Pop the latest v2 packet from the ring buffer
+ *
+ * If multiple packets are queued, drains all but the most recent and
+ * returns the latest — v2 carries slow-moving metadata where stale
+ * intermediate values offer no value.
+ *
+ * @param out Destination (only written when true is returned)
+ * @return true if a v2 packet was available, false if the ring was empty
+ */
+bool scanner_get_pending_v2(struct zmk_status_adv_v2_data *out);
+#endif
