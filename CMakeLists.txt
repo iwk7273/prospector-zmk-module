@@ -11,8 +11,12 @@ if(CONFIG_ZMK_STATUS_ADVERTISEMENT)
 endif()
 
 # v2 Extended Advertising (Phase 2) — layer name list + custom config.
-# Built as a second, independent BLE 5.0 ext-adv set parallel to v1.
-if(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+# TX path: built as a second, independent BLE 5.0 ext-adv set parallel
+# to v1. Requires both V2_EXT and STATUS_ADVERTISEMENT (= keyboard side),
+# since the TX file uses CONFIG_ZMK_STATUS_ADV_KEYBOARD_NAME which only
+# exists when status advertisement is enabled. The RX path (scanner side)
+# lives entirely under the meteorite shield and doesn't need these files.
+if(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT AND CONFIG_ZMK_STATUS_ADVERTISEMENT)
         target_sources(app PRIVATE src/status_advertisement_v2.c)
         target_sources(app PRIVATE src/prospector_v2_hooks_default.c)
 endif()
