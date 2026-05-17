@@ -75,10 +75,10 @@ static lv_obj_t *lbl_os           = NULL;  /* "--" placeholder when os_mode unkn
 static lv_obj_t *lbl_ble_pill     = NULL;
 static lv_obj_t *lbl_usb_pill     = NULL;
 
-/* ====== OS icons — 16×16 1bpp bitmaps approximating Phosphor glyphs ====== */
-/* LVGL renders LV_IMG_CF_ALPHA_1BIT through the widget's img_recolor, so
- * the icons inherit the text color set on the lv_img widget. Bit order is
- * MSB-first within each byte; row stride is 2 bytes (16 px / 8). */
+/* ====== OS icons — 16×16 1bpp bitmaps approximating Phosphor glyphs ======
+ * LVGL v9 renders LV_COLOR_FORMAT_A1 through the widget's image_recolor,
+ * so the icons inherit the text color set on the lv_image widget. Bit
+ * order is MSB-first within each byte; row stride is 2 bytes (16 px / 8). */
 
 static const uint8_t os_icon_windows_map[] = {
     0x00, 0x00,
@@ -99,13 +99,14 @@ static const uint8_t os_icon_windows_map[] = {
     0x3F, 0x3F,
 };
 
-static const lv_img_dsc_t os_icon_windows = {
+static const lv_image_dsc_t os_icon_windows = {
     .header = {
-        .cf = LV_IMG_CF_ALPHA_1BIT,
-        .always_zero = 0,
-        .reserved = 0,
-        .w = 16,
-        .h = 16,
+        .magic  = LV_IMAGE_HEADER_MAGIC,
+        .cf     = LV_COLOR_FORMAT_A1,
+        .flags  = 0,
+        .w      = 16,
+        .h      = 16,
+        .stride = 2,
     },
     .data_size = sizeof(os_icon_windows_map),
     .data = os_icon_windows_map,
@@ -130,13 +131,14 @@ static const uint8_t os_icon_apple_map[] = {
     0x07, 0x80,  /* .....####....... */
 };
 
-static const lv_img_dsc_t os_icon_apple = {
+static const lv_image_dsc_t os_icon_apple = {
     .header = {
-        .cf = LV_IMG_CF_ALPHA_1BIT,
-        .always_zero = 0,
-        .reserved = 0,
-        .w = 16,
-        .h = 16,
+        .magic  = LV_IMAGE_HEADER_MAGIC,
+        .cf     = LV_COLOR_FORMAT_A1,
+        .flags  = 0,
+        .w      = 16,
+        .h      = 16,
+        .stride = 2,
     },
     .data_size = sizeof(os_icon_apple_map),
     .data = os_icon_apple_map,
@@ -192,7 +194,7 @@ static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
     }
 }
 
-static const lv_img_dsc_t *os_icon_for_mode(uint8_t os_mode) {
+static const lv_image_dsc_t *os_icon_for_mode(uint8_t os_mode) {
     switch (os_mode) {
     case METEORITE_OS_WIN: return &os_icon_windows;
     case METEORITE_OS_MAC: return &os_icon_apple;
@@ -272,11 +274,11 @@ static void build_config(lv_obj_t *p) {
     lbl_cpi      = make_label(p,   4, y_text, &lv_font_montserrat_14, COL_FG,  "CPI ----");
     lbl_scrl     = make_label(p,  70, y_text, &lv_font_montserrat_14, COL_FG,  "SCRL --");
 
-    img_os = lv_img_create(p);
+    img_os = lv_image_create(p);
     lv_obj_set_pos(img_os, 132, y_icon);
-    lv_img_set_src(img_os, &os_icon_windows);  /* arbitrary default */
-    lv_obj_set_style_img_recolor(img_os, COL_FG, 0);
-    lv_obj_set_style_img_recolor_opa(img_os, LV_OPA_COVER, 0);
+    lv_image_set_src(img_os, &os_icon_windows);  /* arbitrary default */
+    lv_obj_set_style_image_recolor(img_os, COL_FG, 0);
+    lv_obj_set_style_image_recolor_opa(img_os, LV_OPA_COVER, 0);
     lv_obj_add_flag(img_os, LV_OBJ_FLAG_HIDDEN);  /* shown once OS known */
 
     /* "--" placeholder occupying the same slot when os_mode is unknown. */
@@ -428,10 +430,10 @@ void meteorite_layout_refresh(void) {
 
     /* ===== Config ===== */
     if (img_os && lbl_os) {
-        const lv_img_dsc_t *icon = custom_config_live
-                                 ? os_icon_for_mode(s.os_mode) : NULL;
+        const lv_image_dsc_t *icon = custom_config_live
+                                   ? os_icon_for_mode(s.os_mode) : NULL;
         if (icon) {
-            lv_img_set_src(img_os, icon);
+            lv_image_set_src(img_os, icon);
             lv_obj_clear_flag(img_os, LV_OBJ_FLAG_HIDDEN);
             lv_obj_add_flag(lbl_os, LV_OBJ_FLAG_HIDDEN);
         } else {
