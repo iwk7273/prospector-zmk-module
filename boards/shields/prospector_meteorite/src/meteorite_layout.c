@@ -68,11 +68,79 @@ static lv_obj_t *lbl_battery_pct  = NULL;
 static lv_obj_t *lbl_layer_main   = NULL;  /* "L0 BASE" — sublayer list removed per UX request */
 
 /* Config zone */
-static lv_obj_t *lbl_os           = NULL;
 static lv_obj_t *lbl_cpi          = NULL;
 static lv_obj_t *lbl_scrl         = NULL;
+static lv_obj_t *img_os           = NULL;  /* Phosphor windows / apple icon */
+static lv_obj_t *lbl_os           = NULL;  /* "--" placeholder when os_mode unknown */
 static lv_obj_t *lbl_ble_pill     = NULL;
 static lv_obj_t *lbl_usb_pill     = NULL;
+
+/* ====== OS icons — 16×16 1bpp bitmaps approximating Phosphor glyphs ====== */
+/* LVGL renders LV_IMG_CF_ALPHA_1BIT through the widget's img_recolor, so
+ * the icons inherit the text color set on the lv_img widget. Bit order is
+ * MSB-first within each byte; row stride is 2 bytes (16 px / 8). */
+
+static const uint8_t os_icon_windows_map[] = {
+    0x00, 0x00,
+    0x00, 0x00,
+    0x3F, 0x3F,  /* ..######..######  top row of top-left + top-right squares */
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x00, 0x00,  /* vertical gap between top and bottom rows */
+    0x00, 0x00,
+    0x3F, 0x3F,  /* bottom-left + bottom-right squares */
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+    0x3F, 0x3F,
+};
+
+static const lv_img_dsc_t os_icon_windows = {
+    .header = {
+        .cf = LV_IMG_CF_ALPHA_1BIT,
+        .always_zero = 0,
+        .reserved = 0,
+        .w = 16,
+        .h = 16,
+    },
+    .data_size = sizeof(os_icon_windows_map),
+    .data = os_icon_windows_map,
+};
+
+static const uint8_t os_icon_apple_map[] = {
+    0x01, 0x00,  /* .......#........  leaf top */
+    0x03, 0x00,  /* ......##........  */
+    0x03, 0x00,  /* ......##........  */
+    0x1F, 0xE0,  /* ...########.....  apple body top */
+    0x3F, 0xF0,  /* ..##########....  */
+    0x7F, 0xF8,  /* .############... */
+    0x7F, 0xF8,
+    0x7F, 0xF8,
+    0x7F, 0xF8,
+    0x7F, 0xF8,
+    0x7F, 0xF8,
+    0x3F, 0xF0,
+    0x3F, 0xF0,
+    0x1F, 0xE0,
+    0x0F, 0xC0,  /* ....######...... */
+    0x07, 0x80,  /* .....####....... */
+};
+
+static const lv_img_dsc_t os_icon_apple = {
+    .header = {
+        .cf = LV_IMG_CF_ALPHA_1BIT,
+        .always_zero = 0,
+        .reserved = 0,
+        .w = 16,
+        .h = 16,
+    },
+    .data_size = sizeof(os_icon_apple_map),
+    .data = os_icon_apple_map,
+};
 
 /* Rate zone (2 sources × 2 rows) */
 struct rate_row_widgets {
@@ -124,11 +192,11 @@ static void fmt_eta(char *out, size_t sz, uint32_t remaining_s) {
     }
 }
 
-static const char *os_mode_text(uint8_t os_mode) {
+static const lv_img_dsc_t *os_icon_for_mode(uint8_t os_mode) {
     switch (os_mode) {
-    case METEORITE_OS_WIN: return "WIN";
-    case METEORITE_OS_MAC: return "MAC";
-    default:               return "--";
+    case METEORITE_OS_WIN: return &os_icon_windows;
+    case METEORITE_OS_MAC: return &os_icon_apple;
+    default:               return NULL;
     }
 }
 
@@ -194,14 +262,28 @@ static void build_layer(lv_obj_t *p) {
 }
 
 static void build_config(lv_obj_t *p) {
-    int y = CFG_Y + 6;
-    /* Widths at Montserrat 14: "OS WIN"~50, "CPI 3200"~64, "SCRL L3"~52,
-     * "BLE 4"~40, "USB"~32. Lay out left-to-right with ~8px gaps. */
-    lbl_os       = make_label(p, 4,   y, &lv_font_montserrat_14, COL_FG,  "OS --");
-    lbl_cpi      = make_label(p, 60,  y, &lv_font_montserrat_14, COL_FG,  "CPI ----");
-    lbl_scrl     = make_label(p, 132, y, &lv_font_montserrat_14, COL_FG,  "SCRL --");
-    lbl_ble_pill = make_label(p, 196, y, &lv_font_montserrat_14, COL_DIM, "BLE -");
-    lbl_usb_pill = make_label(p, 244, y, &lv_font_montserrat_14, COL_DIM, "USB");
+    int y_text = CFG_Y + 6;
+    int y_icon = CFG_Y + 4;  /* 16px icon sits 2px higher so its baseline
+                              * lines up with the 14px text baseline. */
+
+    /* Order: CPI → SCRL → OS (icon) → BLE → USB.
+     * Widths at Montserrat 14: "CPI 3200" ~60, "SCRL L3" ~52,
+     * OS icon 16, "BLE 4" ~40, "USB" ~30. */
+    lbl_cpi      = make_label(p,   4, y_text, &lv_font_montserrat_14, COL_FG,  "CPI ----");
+    lbl_scrl     = make_label(p,  70, y_text, &lv_font_montserrat_14, COL_FG,  "SCRL --");
+
+    img_os = lv_img_create(p);
+    lv_obj_set_pos(img_os, 132, y_icon);
+    lv_img_set_src(img_os, &os_icon_windows);  /* arbitrary default */
+    lv_obj_set_style_img_recolor(img_os, COL_FG, 0);
+    lv_obj_set_style_img_recolor_opa(img_os, LV_OPA_COVER, 0);
+    lv_obj_add_flag(img_os, LV_OBJ_FLAG_HIDDEN);  /* shown once OS known */
+
+    /* "--" placeholder occupying the same slot when os_mode is unknown. */
+    lbl_os = make_label(p, 132, y_text, &lv_font_montserrat_14, COL_DIM, "--");
+
+    lbl_ble_pill = make_label(p, 164, y_text, &lv_font_montserrat_14, COL_DIM, "BLE -");
+    lbl_usb_pill = make_label(p, 216, y_text, &lv_font_montserrat_14, COL_DIM, "USB");
 }
 
 static void build_rate_row(lv_obj_t *p, int src, int row, int y,
@@ -269,9 +351,10 @@ void meteorite_layout_destroy(void) {
     lbl_rssi_dbm     = NULL;
     lbl_battery_pct  = NULL;
     lbl_layer_main   = NULL;
-    lbl_os           = NULL;
     lbl_cpi          = NULL;
     lbl_scrl         = NULL;
+    img_os           = NULL;
+    lbl_os           = NULL;
     lbl_ble_pill     = NULL;
     lbl_usb_pill     = NULL;
     memset(rate_rows, 0, sizeof(rate_rows));
@@ -344,11 +427,17 @@ void meteorite_layout_refresh(void) {
     }
 
     /* ===== Config ===== */
-    if (lbl_os) {
-        lv_label_set_text(lbl_os,
-            custom_config_live ? os_mode_text(s.os_mode) : "OS --");
-        lv_obj_set_style_text_color(lbl_os,
-            custom_config_live ? COL_FG : COL_DIM, 0);
+    if (img_os && lbl_os) {
+        const lv_img_dsc_t *icon = custom_config_live
+                                 ? os_icon_for_mode(s.os_mode) : NULL;
+        if (icon) {
+            lv_img_set_src(img_os, icon);
+            lv_obj_clear_flag(img_os, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_add_flag(lbl_os, LV_OBJ_FLAG_HIDDEN);
+        } else {
+            lv_obj_add_flag(img_os, LV_OBJ_FLAG_HIDDEN);
+            lv_obj_clear_flag(lbl_os, LV_OBJ_FLAG_HIDDEN);
+        }
     }
     if (lbl_cpi) {
         if (custom_config_live && s.cpi_value > 0) {
