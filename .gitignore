@@ -29,9 +29,9 @@ test/**/venv/
 test/**/build/
 test/**/.west/
 
-# Zephyr/West artifacts
-modules/
-tools/
-zephyr/
-bootloader/
-zmk/
+# Zephyr/West artifacts (root-anchored so include/zmk/ etc. are not ignored)
+/modules/
+/tools/
+/zephyr/
+/bootloader/
+/zmk/

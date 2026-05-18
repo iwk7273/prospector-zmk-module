@@ -23,6 +23,9 @@
 #include <zmk/endpoints.h>
 #include <zmk/hid.h>
 #include <zmk/status_advertisement.h>
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+#include <zmk/status_advertisement_v2.h>
+#endif
 #include <zmk/events/modifiers_state_changed.h>
 #include <zmk/events/activity_state_changed.h>
 #include <zmk/activity.h>
@@ -404,6 +407,79 @@ static struct bt_data prospector_ad[] = {
     BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
     BT_DATA(BT_DATA_MANUFACTURER_DATA, (uint8_t *)&manufacturer_data, sizeof(manufacturer_data)),
 };
+
+// --- Phase 2 v2 multi-frame multiplex ---
+// Built and updated by prepare_payload_for_cycle() (see below). When a v2
+// frame is selected, prospector_current_ad/sd point at these v2 buffers
+// instead of the v1 ones, and bt_le_adv_update_data() pushes a v2 frame
+// this cycle. Same legacy adv transport, distinct service UUID (0xABCE).
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+static union zmk_status_adv_v2_frame v2_frame_data;
+
+static struct bt_data prospector_ad_v2[] = {
+    BT_DATA_BYTES(BT_DATA_FLAGS, (BT_LE_AD_GENERAL | BT_LE_AD_NO_BREDR)),
+    BT_DATA(BT_DATA_MANUFACTURER_DATA, (uint8_t *)&v2_frame_data,
+            ZMK_STATUS_ADV_V2_FRAME_SIZE),
+};
+
+#if defined(BT_LE_ADV_OPT_FORCE_NAME_IN_AD)
+static struct bt_data piggyback_sd_v2[] = {
+    BT_DATA(BT_DATA_MANUFACTURER_DATA, (uint8_t *)&v2_frame_data,
+            ZMK_STATUS_ADV_V2_FRAME_SIZE),
+};
+#endif
+#endif
+
+/* Active payload pointers — switched between v1 and v2 each cycle by
+ * prepare_payload_for_cycle(). Update_data calls in adv_work_handler use
+ * these instead of referring to the v1 arrays directly. */
+static struct bt_data *prospector_current_ad      = prospector_ad;
+static int             prospector_current_ad_count = ARRAY_SIZE(prospector_ad);
+#if defined(BT_LE_ADV_OPT_FORCE_NAME_IN_AD)
+static struct bt_data *prospector_current_sd      = piggyback_sd;
+static int             prospector_current_sd_count = ARRAY_SIZE(piggyback_sd);
+#endif
+
+/* Cycle counter that decides v1 vs v2 each tick. */
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+static uint32_t v2_cycle_counter = 0;
+#endif
+
+/* Forward declaration — build_manufacturer_payload() is defined further
+ * down in this file but is called by prepare_payload_for_cycle() above. */
+static void build_manufacturer_payload(void);
+
+/* Refresh manufacturer_data (always — needed for v2's keyboard_id and
+ * for the start path), then choose whether to advertise v1 or a v2
+ * frame this cycle and point prospector_current_ad/sd accordingly. */
+static void prepare_payload_for_cycle(void) {
+    build_manufacturer_payload();
+
+#if IS_ENABLED(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT)
+    v2_cycle_counter++;
+    if ((v2_cycle_counter % CONFIG_PROSPECTOR_STATUS_ADV_V2_INTERVAL) == 0) {
+        uint8_t frame_id = (v2_cycle_counter / CONFIG_PROSPECTOR_STATUS_ADV_V2_INTERVAL)
+                         % ZMK_STATUS_ADV_V2_FRAME_COUNT;
+        zmk_status_adv_v2_build_frame(frame_id,
+                                      manufacturer_data.keyboard_id,
+                                      &v2_frame_data);
+        prospector_current_ad = prospector_ad_v2;
+        prospector_current_ad_count = ARRAY_SIZE(prospector_ad_v2);
+#if defined(BT_LE_ADV_OPT_FORCE_NAME_IN_AD)
+        prospector_current_sd = piggyback_sd_v2;
+        prospector_current_sd_count = ARRAY_SIZE(piggyback_sd_v2);
+#endif
+        return;
+    }
+#endif
+
+    prospector_current_ad = prospector_ad;
+    prospector_current_ad_count = ARRAY_SIZE(prospector_ad);
+#if defined(BT_LE_ADV_OPT_FORCE_NAME_IN_AD)
+    prospector_current_sd = piggyback_sd;
+    prospector_current_sd_count = ARRAY_SIZE(piggyback_sd);
+#endif
+}
 
 // --- Name-in-AD: Periodic name broadcast ---
 // MODE 2 SCAN_RSP doesn't reach scanner (radio busy with BLE connection).
@@ -891,7 +967,10 @@ static void adv_work_handler(struct k_work *work) {
     return;
 #endif
 
-    build_manufacturer_payload();
+    /* Builds v1 (always) and conditionally builds + selects a v2 frame.
+     * After this returns, prospector_current_ad/sd point at the right
+     * buffer for this cycle. */
+    prepare_payload_for_cycle();
 
     // ---- Burst/silent cycle gate (split central waiting for peripherals) ----
     //
@@ -962,7 +1041,9 @@ static void adv_work_handler(struct k_work *work) {
                     LOG_DBG("📡 Name-in-AD sent: \"%s\"", name_adv_buffer);
                 }
             } else {
-                err = bt_le_adv_update_data(prospector_ad, ARRAY_SIZE(prospector_ad),
+                /* prospector_current_ad points at v1 or v2 this cycle. */
+                err = bt_le_adv_update_data(prospector_current_ad,
+                                            prospector_current_ad_count,
                                             NULL, 0);
             }
             if (err == -EAGAIN) {
@@ -979,12 +1060,16 @@ static void adv_work_handler(struct k_work *work) {
         // Try piggyback on ZMK's advertising
 #if defined(BT_LE_ADV_OPT_FORCE_NAME_IN_AD)
         // Newer Zephyr: ZMK puts name in AD → SD is free for manufacturer data
+        // prospector_current_sd carries either v1 or v2 manufacturer data.
         int err = bt_le_adv_update_data(zmk_ad_restore, ARRAY_SIZE(zmk_ad_restore),
-                                        piggyback_sd, ARRAY_SIZE(piggyback_sd));
+                                        prospector_current_sd,
+                                        prospector_current_sd_count);
 #else
         // Older Zephyr: name goes in SD → put manufacturer in AD to avoid truncation
         // (31-byte SD can't hold both 28-byte manufacturer data AND device name)
-        int err = bt_le_adv_update_data(prospector_ad, ARRAY_SIZE(prospector_ad),
+        // prospector_current_ad carries either v1 or v2 manufacturer data.
+        int err = bt_le_adv_update_data(prospector_current_ad,
+                                        prospector_current_ad_count,
                                         NULL, 0);
 #endif
 
