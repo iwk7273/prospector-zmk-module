@@ -81,6 +81,17 @@ static uint8_t wpm_current_second_keys = 0;  // Keys in current second
                                (CONFIG_ZMK_STATUS_ADV_WPM_DECAY_TIMEOUT_SECONDS * 1000) : \
                                (WPM_WINDOW_MS * 2)))
 
+// Split partial burst/silent settings only appear in Kconfig for split central
+// builds. Keep compile-time defaults for standalone builds that still compile
+// the shared advertisement path.
+#ifndef CONFIG_PROSPECTOR_SPLIT_PARTIAL_BURST_MS
+#define CONFIG_PROSPECTOR_SPLIT_PARTIAL_BURST_MS 200
+#endif
+
+#ifndef CONFIG_PROSPECTOR_SPLIT_PARTIAL_SILENT_MS
+#define CONFIG_PROSPECTOR_SPLIT_PARTIAL_SILENT_MS 1800
+#endif
+
 LOG_MODULE_DECLARE(zmk, CONFIG_ZMK_LOG_LEVEL);
 
 #if IS_ENABLED(CONFIG_ZMK_STATUS_ADVERTISEMENT)
