@@ -10,6 +10,15 @@ if(CONFIG_ZMK_STATUS_ADVERTISEMENT)
         target_sources(app PRIVATE src/status_advertisement.c)
 endif()
 
+# v2 multi-frame legacy ADV builder (Phase 2 redesign).
+# Spliced into the existing v1 adv work cycle by status_advertisement.c
+# — no separate BT API, no BT_EXT_ADV. Keyboard side only; the scanner
+# (RX) parses the same wire frames inline in status_scanner.c.
+if(CONFIG_PROSPECTOR_STATUS_ADV_V2_EXT AND CONFIG_ZMK_STATUS_ADVERTISEMENT)
+        target_sources(app PRIVATE src/status_advertisement_v2.c)
+        target_sources(app PRIVATE src/prospector_v2_hooks_default.c)
+endif()
+
 # Add scanner mode support
 if(CONFIG_PROSPECTOR_MODE_SCANNER)
         target_sources(app PRIVATE src/status_scanner.c)

@@ -1,0 +1,77 @@
+# Prospector Meteorite - dedicated single-keyboard layout build
+
+if SHIELD_PROSPECTOR_METEORITE
+
+config ZMK_KEYBOARD_NAME
+    default "Prospector"
+
+config ZMK_DISPLAY
+    default y
+
+# MIPI DBI for ST7789V (bool required for Zephyr 3.5.0 compatibility)
+config MIPI_DBI
+    bool
+    default y
+
+config SPI
+    default y
+
+choice ST7789V_PIXEL_FORMAT
+    default ST7789V_RGB565
+endchoice
+
+# LVGL basic settings
+config LV_Z_VDB_SIZE
+    default 100
+
+config LV_DPI_DEF
+    default 261
+
+config LV_Z_BITS_PER_PIXEL
+    default 16
+
+choice LV_COLOR_DEPTH
+    default LV_COLOR_DEPTH_16
+endchoice
+
+config LV_COLOR_16_SWAP
+    default y
+
+choice ZMK_DISPLAY_STATUS_SCREEN
+    default ZMK_DISPLAY_STATUS_SCREEN_CUSTOM
+endchoice
+
+# Re-use the existing prospector scanner data plumbing for BLE ADV ingestion.
+# Single-keyboard, no multi-keyboard list, no channel filter UI.
+config PROSPECTOR_MODE_SCANNER
+    default y
+
+# Meteorite only ever shows a single keyboard, but PROSPECTOR_MAX_KEYBOARDS
+# (referenced unconditionally by zmk/status_scanner.h) requires
+# PROSPECTOR_MULTI_KEYBOARD=y. Keep multi=y and cap the table at 1.
+config PROSPECTOR_MULTI_KEYBOARD
+    default y
+
+config PROSPECTOR_MAX_KEYBOARDS
+    default 1
+
+config PROSPECTOR_MAX_LAYERS
+    default 10
+
+config PROSPECTOR_SCANNER_CHANNEL
+    default 0
+
+# Battery on Prospector hardware is optional; keep off by default for Meteorite.
+config PROSPECTOR_BATTERY_SUPPORT
+    default n
+
+# No touch panel for Meteorite layout (no swipe UI).
+config PROSPECTOR_TOUCH_ENABLED
+    default n
+
+# Auto-brightness via APDS9960 stays available but defaults off; Meteorite
+# tends to be in stable lighting on a desk.
+config PROSPECTOR_USE_AMBIENT_LIGHT_SENSOR
+    default n
+
+endif
